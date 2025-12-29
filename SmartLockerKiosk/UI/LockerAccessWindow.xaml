@@ -1,0 +1,245 @@
+﻿<Window x:Class="SmartLockerKiosk.LockerAccessWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:keypad="clr-namespace:Keypad;assembly=Keypad"
+        Topmost="True"
+        Title="Locker Access"
+        WindowStyle="None"
+        ResizeMode="NoResize"
+        WindowState="Maximized"
+        Background="#00205B"
+        WindowStartupLocation="CenterScreen"
+        Loaded="LockerAccessWindow_Loaded">
+
+    <Window.Resources>
+        <Storyboard x:Key="FadeInPrompt">
+            <DoubleAnimation Storyboard.TargetName="UserPromptText"
+                             Storyboard.TargetProperty="Opacity"
+                             From="0" To="1"
+                             Duration="0:0:3"/>
+        </Storyboard>
+
+        <DropShadowEffect x:Key="PromptShadowEffect"
+                          Color="#F0F4F8"
+                          BlurRadius="100"
+                          ShadowDepth=".25"
+                          Opacity=".5"/>
+    </Window.Resources>
+
+    <Grid x:Name="RootGrid">
+
+        <!-- HID capture box (not scaled, not visible) -->
+        <TextBox x:Name="HidInputBox"
+                 Opacity="0"
+                 Width="1"
+                 Height="1"
+                 IsTabStop="False"
+                 Focusable="True"
+                 VerticalAlignment="Top"
+                 HorizontalAlignment="Left" />
+
+        <Viewbox Stretch="Uniform">
+            <Grid Width="800" Height="1200" Background="#00205B">
+
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <!-- Header -->
+                    <RowDefinition Height="*"/>
+                    <!-- Main -->
+                    <RowDefinition Height="Auto"/>
+                    <!-- Footer -->
+                </Grid.RowDefinitions>
+
+                <!-- Header -->
+                <Grid x:Name="HeaderArea" Grid.Row="0" Margin="20" Panel.ZIndex="1">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <Viewbox Width="225" Height="225"
+                             HorizontalAlignment="Left"
+                             VerticalAlignment="Top">
+                        <Image Source="/Images/TSALogo.png"
+                               RenderOptions.BitmapScalingMode="HighQuality"/>
+                    </Viewbox>
+
+                    <Button Grid.Column="2"
+                            Content="X"
+                            Width="40" Height="40"
+                            FontSize="16"
+                            FontWeight="Bold"
+                            Background="Red"
+                            Foreground="White"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Top"
+                            Click="CloseButton_Click"
+                            Margin="0,10,10,0"/>
+                </Grid>
+
+                <!-- Main -->
+                <Grid x:Name="MainContentArea"
+                      Grid.Row="1"
+                      HorizontalAlignment="Center"
+                      VerticalAlignment="Stretch"
+                      Margin="0,10,0,10"
+                      Width="700">
+
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <!-- Buttons -->
+                        <RowDefinition Height="Auto"/>
+                        <!-- Prompt -->
+                        <RowDefinition Height="*"/>
+                        <!-- Size + Keypad (critical) -->
+                    </Grid.RowDefinitions>
+
+                    <!-- Buttons -->
+                    <StackPanel Grid.Row="0"
+                                Orientation="Horizontal"
+                                HorizontalAlignment="Center"
+                                Margin="0,6,0,6">
+                        <Button x:Name="DeliverButton"
+                                Content="DELIVER"
+                                Width="300" Height="100"
+                                FontSize="48"
+                                FontWeight="Bold"
+                                Background="#3399FF"
+                                Foreground="White"
+                                Margin="10,0"
+                                Click="DeliverButton_Click"/>
+                        <Button x:Name="PickupButton"
+                                Content="PICKUP"
+                                Width="300" Height="100"
+                                FontSize="48"
+                                FontWeight="Bold"
+                                Background="#3399FF"
+                                Foreground="White"
+                                Margin="10,0"
+                                Click="PickupButton_Click"/>
+                    </StackPanel>
+
+                    <!-- Prompt -->
+                    <Border Grid.Row="1"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Width="625"
+                            Height="100"
+                            Margin="0,10,0,10"
+                            Background="#60FFFFFF"
+                            CornerRadius="40"
+                            Padding="20"
+                            Effect="{DynamicResource PromptShadowEffect}">
+                        <TextBlock x:Name="UserPromptText"
+                                   Text="Select Transaction Type"
+                                   Opacity=".8"
+                                   FontSize="36"
+                                   FontWeight="Bold"
+                                   Foreground="White"
+                                   TextAlignment="Center"
+                                   TextWrapping="Wrap"
+                                   FontFamily="Segoe UI"/>
+                    </Border>
+
+                    <!-- Size + Keypad area -->
+                    <Grid Grid.Row="2" Margin="0,0,0,0">
+                        <!-- KEY CHANGE:
+                             Size panel is Auto (capped), keypad gets the remaining "*" space -->
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <!-- Size panel -->
+                            <RowDefinition Height="*"/>
+                            <!-- Keypad ALWAYS fits -->
+                        </Grid.RowDefinitions>
+
+                        <!-- Size selection (shows above keypad, cannot steal all height) -->
+                        <Border x:Name="SizeSelectionPanel"
+                                Grid.Row="0"
+                                Margin="0,0,0,8"
+                                Background="#30FFFFFF"
+                                CornerRadius="24"
+                                Padding="16"
+                                Visibility="Collapsed"
+                                MaxHeight="320">
+
+                            <StackPanel>
+                                <TextBlock Text="Select Compartment Size"
+                                           FontSize="28"
+                                           FontWeight="Bold"
+                                           Foreground="White"
+                                           HorizontalAlignment="Center"
+                                           Margin="0,0,0,10"/>
+
+                                <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                              HorizontalScrollBarVisibility="Disabled">
+                                    <ItemsControl x:Name="SizeTilesItems">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <WrapPanel HorizontalAlignment="Center"/>
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                    </ItemsControl>
+                                </ScrollViewer>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Keypad: fills remaining space; Viewbox will scale it DOWN instead of clipping -->
+                        <Viewbox Grid.Row="1"
+                                 Stretch="Uniform"
+                                 HorizontalAlignment="Center"
+                                 VerticalAlignment="Stretch"
+                                 Margin="0,0,0,0">
+                            <keypad:NumericKeypadControl x:Name="KeypadControl"/>
+                        </Viewbox>
+
+                    </Grid>
+                </Grid>
+
+                <!-- Footer -->
+                <Grid x:Name="FooterArea"
+                      Grid.Row="2"
+                      Margin="500,10,0,10"
+                      HorizontalAlignment="Left"
+                      VerticalAlignment="Center"
+                      Panel.ZIndex="999"
+                      IsHitTestVisible="True">
+
+                    <Ellipse Width="200" Height="62"
+                             Fill="White"
+                             Opacity="0.20"
+                             HorizontalAlignment="Center"
+                             VerticalAlignment="Center"
+                             Margin="50,10,0,0"
+                             IsHitTestVisible="False"/>
+
+                    <Border Background="Transparent"
+                            Cursor="Hand"
+                            MouseLeftButtonUp="AdminLogo_MouseLeftButtonUp"
+                            Width="280"
+                            Height="110"
+                            Panel.ZIndex="1000"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            IsHitTestVisible="True">
+                        <Image Source="/Images/BrandingLogo.png"
+                               Width="250"
+                               Height="90"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center">
+                            <Image.Effect>
+                                <DropShadowEffect Color="White"
+                                                  BlurRadius="12"
+                                                  ShadowDepth="0.25"
+                                                  Opacity="0.75"/>
+                            </Image.Effect>
+                        </Image>
+                    </Border>
+                </Grid>
+
+            </Grid>
+        </Viewbox>
+    </Grid>
+</Window>
+
+

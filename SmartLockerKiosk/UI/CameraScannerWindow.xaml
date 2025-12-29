@@ -1,0 +1,35 @@
+﻿<Window x:Class="SmartLockerKiosk.CameraScannerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Scan Barcode"
+        Width="800" Height="600"
+        WindowStyle="None"
+        Background="Black"
+        SizeToContent="Manual"
+        WindowStartupLocation="Manual"
+        ResizeMode="NoResize"
+        Topmost="True">
+
+    <Grid>
+        <Image x:Name="CameraPreview"
+            Stretch="UniformToFill"
+            HorizontalAlignment="Stretch"
+            VerticalAlignment="Stretch"
+            RenderTransformOrigin="0.5,0.5">
+            <Image.RenderTransform>
+                <ScaleTransform ScaleX="-1" />
+            </Image.RenderTransform>
+        </Image>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="10">
+            <Button Name="CancelButton" Content="Cancel" Width="100" Height="40" Margin="0,10,10,10"
+            Click="CancelButton_Click"/>
+        </StackPanel>
+
+        <TextBlock Text="Align Barcode in the Center" 
+                   VerticalAlignment="Bottom"
+                   HorizontalAlignment="Center"
+                   Margin="0,0,0,20"
+                   Foreground="White"
+                   FontSize="24"/>
+    </Grid>
+</Window>

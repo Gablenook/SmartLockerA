@@ -1,0 +1,54 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<OutputType>WinExe</OutputType>
+		<TargetFramework>net8.0-windows</TargetFramework>
+		<UseWPF>true</UseWPF>
+		<RootNamespace>SmartLockerKiosk</RootNamespace>
+		<ImportedNamespaces>HldSerialLib.Serial.LockBoard=False,Microsoft.VisualBasic=True,System=True,System.Collections=True,System.Collections.Generic=True,System.Diagnostics=True,System.Linq=True,System.Xml.Linq=True,System.Threading.Tasks=True,SmartLockerKiosk=True</ImportedNamespaces>
+	</PropertyGroup>
+
+	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
+	  <PlatformTarget>x86</PlatformTarget>
+	</PropertyGroup>
+
+	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
+	  <PlatformTarget>x86</PlatformTarget>
+	</PropertyGroup>
+
+	<ItemGroup>
+	  <PackageReference Include="AForge.video" Version="2.2.5" />
+	  <PackageReference Include="AForge.Video.DirectShow" Version="2.2.5" />
+	  <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.12" />
+	  <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.12" />
+	  <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="8.0.12">
+	    <PrivateAssets>all</PrivateAssets>
+	    <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+	  </PackageReference>
+	  <PackageReference Include="System.Drawing.Common" Version="9.0.8" />
+	  <PackageReference Include="System.IO.Ports" Version="10.0.1" />
+	  <PackageReference Include="ZXing.net" Version="0.16.10" />
+	  <PackageReference Include="ZXing.Net.Bindings.Windows.Compatibility" Version="0.16.13" />
+	</ItemGroup>
+
+	<!-- Reference to the Keypad C# project -->
+	<ItemGroup>
+		<ProjectReference Include="..\Keypad\Keypad.csproj" />
+	</ItemGroup>
+	<ItemGroup>
+	  <Reference Include="HldSerialLib">
+	    <HintPath>..\..\VBPrograms\Headleader\SDKWin\LCBWin\LCBSDK\Demo Code\Include\HldSerialLib.dll</HintPath>
+	    <Private>True</Private>
+	  </Reference>
+	</ItemGroup>
+
+	<!-- Embedded image resources -->
+	<ItemGroup>
+		<Resource Include="Images\BrandingLogo.png" />
+		<Resource Include="Images\TSALogo.png" />
+	</ItemGroup>
+	<ItemGroup>
+	  <Import Include="HldSerialLib.Serial.LockBoard" />
+	</ItemGroup>
+
+</Project>

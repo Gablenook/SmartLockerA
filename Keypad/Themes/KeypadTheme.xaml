@@ -1,0 +1,45 @@
+
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Color x:Key="TSA_Navy">#005DAA</Color>
+    <Color x:Key="TSA_Scarlet">#EE2624</Color>
+    <Color x:Key="TSA_White">#FFFFFF</Color>
+
+    <SolidColorBrush x:Key="KeypadBackground" Color="{StaticResource TSA_White}"/>
+    <SolidColorBrush x:Key="ButtonBackground" Color="{StaticResource TSA_Navy}"/>
+    <SolidColorBrush x:Key="ButtonForeground" Color="{StaticResource TSA_White}"/>
+
+    <DropShadowEffect x:Key="ShadowEffect" BlurRadius="10" ShadowDepth="3" Direction="270" Opacity="0.4"/>
+
+    <Style TargetType="Button">
+        <Setter Property="FontSize" Value="32"/>
+        <Setter Property="Margin" Value="2"/>
+        <Setter Property="Padding" Value="4"/>
+        <Setter Property="Background" Value="{StaticResource ButtonBackground}"/>
+        <Setter Property="Foreground" Value="{StaticResource ButtonForeground}"/>
+        <Setter Property="Effect" Value="{StaticResource ShadowEffect}"/>
+        <Setter Property="FontWeight" Value="Bold"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border Background="{TemplateBinding Background}"
+                            CornerRadius="10"
+                            Effect="{TemplateBinding Effect}">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter Property="RenderTransform">
+                                <Setter.Value>
+                                    <ScaleTransform ScaleX="0.95" ScaleY="0.95"/>
+                                </Setter.Value>
+                            </Setter>
+                            <Setter Property="RenderTransformOrigin" Value="0.5,0.5"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+</ResourceDictionary>

@@ -26,6 +26,7 @@ G:\SmartLockerA\Keypad\obj\Debug\net8.0-windows\Keypad.GeneratedMSBuildEditorCon
 G:\SmartLockerA\Keypad\obj\Debug\net8.0-windows\Keypad.AssemblyInfoInputs.cache
 G:\SmartLockerA\Keypad\obj\Debug\net8.0-windows\Keypad.AssemblyInfo.cs
 G:\SmartLockerA\Keypad\obj\Debug\net8.0-windows\Keypad.csproj.CoreCompileInputs.cache
+G:\SmartLockerA\Keypad\obj\Debug\net8.0-windows\Keypad.sourcelink.json
 G:\SmartLockerA\Keypad\obj\Debug\net8.0-windows\Keypad.dll
 G:\SmartLockerA\Keypad\obj\Debug\net8.0-windows\refint\Keypad.dll
 G:\SmartLockerA\Keypad\obj\Debug\net8.0-windows\Keypad.pdb

@@ -17,6 +17,10 @@
 	</PropertyGroup>
 
 	<ItemGroup>
+	  <ApplicationDefinition Include="App.xaml" />
+	</ItemGroup>
+
+	<ItemGroup>
 	  <PackageReference Include="AForge.video" Version="2.2.5" />
 	  <PackageReference Include="AForge.Video.DirectShow" Version="2.2.5" />
 	  <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.12" />

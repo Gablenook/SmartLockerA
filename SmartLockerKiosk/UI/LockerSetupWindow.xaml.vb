@@ -14,7 +14,7 @@ Namespace SmartLockerKiosk
 
         ' The grid edits THIS collection only
         Private ReadOnly _rows As New ObservableCollection(Of LockerRow)
-
+        Public Property AdminActorID As String
         Public Sub New()
             InitializeComponent()
 
@@ -61,11 +61,23 @@ Namespace SmartLockerKiosk
         .Zone = "",
         .IsEnabled = True
     })
+            Dim actionId As String = Guid.NewGuid().ToString("N")
+
+            Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
+    .EventType = Audit.AuditEventType.PolicyConfigurationChange,
+    .ActorType = Audit.ActorType.Admin,
+    .ActorId = AdminActorID,
+    .AffectedComponent = "LockerSetupWindow",
+    .Outcome = Audit.AuditOutcome.Success,
+    .CorrelationId = actionId,
+    .ReasonCode = "LockerRowAdded"
+})
+
+
 
             StatusText.Text = "Added a new locker row. Set Branch, RelayId, LockerNumber, then Save."
 
         End Sub
-
 
         Private Sub Remove_Click(sender As Object, e As RoutedEventArgs)
             Dim selected = LockersGrid.SelectedItems.Cast(Of LockerRow).ToList()
@@ -78,9 +90,24 @@ Namespace SmartLockerKiosk
                 _rows.Remove(r)
             Next
 
+            Dim actionId As String = Guid.NewGuid().ToString("N")
+
+            Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
+    .EventType = Audit.AuditEventType.PolicyConfigurationChange,
+    .ActorType = Audit.ActorType.Admin,
+    .ActorId = AdminActorID,
+    .AffectedComponent = "LockerSetupWindow",
+    .Outcome = Audit.AuditOutcome.Success,
+    .CorrelationId = actionId,
+    .ReasonCode = $"LockerRowsRemoved:Count={selected.Count}"
+})
+
+
             StatusText.Text = $"Removed {selected.Count} row(s) from the grid. Click Save to commit."
         End Sub
         Private Sub Save_Click(sender As Object, e As RoutedEventArgs)
+
+            Dim actionId As String = Guid.NewGuid().ToString("N")
 
             ' 1) Commit any in-progress edits so values land in _rows
             LockersGrid.CommitEdit(System.Windows.Controls.DataGridEditingUnit.Cell, True)
@@ -97,47 +124,89 @@ Namespace SmartLockerKiosk
             Dim err = ValidateRows()
             If err IsNot Nothing Then
                 MessageBox.Show(err)
+
+                Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
+            .EventType = Audit.AuditEventType.PolicyConfigurationChange,
+            .ActorType = Audit.ActorType.Admin,
+            .ActorId = AdminActorID,
+            .AffectedComponent = "LockerSetupWindow",
+            .Outcome = Audit.AuditOutcome.Denied,
+            .CorrelationId = actionId,
+            .ReasonCode = "LockerConfigSaveDenied:ValidationFailed"
+        })
                 Return
             End If
 
             If _rows.Count = 0 Then
                 MessageBox.Show("Nothing to save.")
+
+                Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
+            .EventType = Audit.AuditEventType.PolicyConfigurationChange,
+            .ActorType = Audit.ActorType.Admin,
+            .ActorId = AdminActorID,
+            .AffectedComponent = "LockerSetupWindow",
+            .Outcome = Audit.AuditOutcome.Denied,
+            .CorrelationId = actionId,
+            .ReasonCode = "LockerConfigSaveDenied:Empty"
+        })
                 Return
             End If
 
             Try
-                Using db = DatabaseBootstrapper.BuildDbContext()
-                    Debug.WriteLine("DB PATH = " & db.Database.GetDbConnection().DataSource)
+                Dim addedCount As Integer = 0
+                Dim updatedCount As Integer = 0
+                Dim deletedCount As Integer = 0
 
-                    ' Load all existing lockers once, keyed by LockerId (fast + avoids Single())
+                Using db = DatabaseBootstrapper.BuildDbContext()
+
+                    ' Existing lockers keyed by id
                     Dim existing = db.Lockers.ToList().ToDictionary(Function(l) l.LockerId)
 
-                    ' Delete lockers removed from the grid (only if DB currently has any)
+                    ' IDs present in grid
                     Dim idsInGrid As HashSet(Of Integer) =
                 _rows.Where(Function(r) r IsNot Nothing AndAlso r.LockerId > 0).
                       Select(Function(r) r.LockerId).
                       ToHashSet()
 
+                    ' Delete those removed from grid
                     If existing.Count > 0 Then
                         Dim toDelete = existing.Values.
                     Where(Function(l) Not idsInGrid.Contains(l.LockerId)).
                     ToList()
 
-                        If toDelete.Count > 0 Then
+                        deletedCount = toDelete.Count
+                        If deletedCount > 0 Then
                             db.Lockers.RemoveRange(toDelete)
                         End If
                     End If
 
-                    ' Upsert rows (SAFE even if user typed a LockerId that doesn't exist in DB)
+                    ' Upsert rows
                     For Each r In _rows
                         If r Is Nothing Then Continue For
 
                         Dim entity As Locker = Nothing
+                        Dim isNew As Boolean = (r.LockerId <= 0 OrElse Not existing.TryGetValue(r.LockerId, entity))
 
-                        ' Treat any row whose LockerId is 0 OR not found in DB as "new"
-                        If r.LockerId <= 0 OrElse Not existing.TryGetValue(r.LockerId, entity) Then
+                        If isNew Then
                             entity = New Locker()
                             db.Lockers.Add(entity)
+                            addedCount += 1
+                        Else
+                            ' Count as update if any meaningful field differs
+                            Dim nb = NormalizeBranch(r.Branch)
+                            Dim nln = NormalizeLockerNumber(r.LockerNumber)
+                            Dim nsc = NormalizeSizeCode(r.SizeCode)
+                            Dim nz = If(r.Zone, "")
+                            Dim nen = r.IsEnabled
+
+                            If Not String.Equals(entity.Branch, nb, StringComparison.OrdinalIgnoreCase) OrElse
+                       entity.RelayId <> r.RelayId OrElse
+                       Not String.Equals(entity.LockerNumber, nln, StringComparison.OrdinalIgnoreCase) OrElse
+                       Not String.Equals(entity.SizeCode, nsc, StringComparison.OrdinalIgnoreCase) OrElse
+                       Not String.Equals(If(entity.Zone, ""), nz, StringComparison.OrdinalIgnoreCase) OrElse
+                       entity.IsEnabled <> nen Then
+                                updatedCount += 1
+                            End If
                         End If
 
                         entity.Branch = NormalizeBranch(r.Branch)
@@ -148,15 +217,34 @@ Namespace SmartLockerKiosk
                         entity.IsEnabled = r.IsEnabled
                     Next
 
-                    Dim n = db.SaveChanges()
-                    Debug.WriteLine($"SaveChanges wrote {n} rows.")
+                    db.SaveChanges()
                 End Using
 
                 LoadLockersFromDb()
                 StatusText.Text = "Saved."
 
-            Catch ex As Exception
-                MessageBox.Show("Save failed: " & ex.Message)
+                Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
+            .EventType = Audit.AuditEventType.PolicyConfigurationChange,
+            .ActorType = Audit.ActorType.Admin,
+            .ActorId = AdminActorID,
+            .AffectedComponent = "LockerSetupWindow",
+            .Outcome = Audit.AuditOutcome.Success,
+            .CorrelationId = actionId,
+            .ReasonCode = $"LockerConfigSaved:Added={addedCount};Updated={updatedCount};Deleted={deletedCount}"
+        })
+
+            Catch
+                MessageBox.Show("Save failed.")
+
+                Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
+            .EventType = Audit.AuditEventType.PolicyConfigurationChange,
+            .ActorType = Audit.ActorType.Admin,
+            .ActorId = AdminActorID,
+            .AffectedComponent = "LockerSetupWindow",
+            .Outcome = Audit.AuditOutcome.Error,
+            .CorrelationId = actionId,
+            .ReasonCode = "LockerConfigSaveFailed"
+        })
             End Try
 
         End Sub
@@ -173,36 +261,58 @@ Namespace SmartLockerKiosk
 
         ' ---------- DB Load ----------
         Private Sub LoadLockersFromDb()
+
+            Dim actionId As String = Guid.NewGuid().ToString("N")
+
             Try
                 _rows.Clear()
 
                 Using db = DatabaseBootstrapper.BuildDbContext()
-                    Debug.WriteLine("DB PATH = " & db.Database.GetDbConnection().DataSource)
-
                     Dim lockers = db.Lockers.AsNoTracking().
-                    OrderBy(Function(x) x.LockerNumber).
-                    ToList()
-
-                    Debug.WriteLine($"Loaded lockers count = {lockers.Count}")
+                OrderBy(Function(x) x.LockerNumber).
+                ToList()
 
                     For Each l In lockers
                         _rows.Add(New LockerRow With {
-                        .LockerId = l.LockerId,
-                        .Branch = l.Branch,
-                        .RelayId = l.RelayId,
-                        .LockerNumber = l.LockerNumber,
-                        .SizeCode = l.SizeCode,
-                        .Zone = l.Zone,
-                        .IsEnabled = l.IsEnabled
-                    })
+                    .LockerId = l.LockerId,
+                    .Branch = l.Branch,
+                    .RelayId = l.RelayId,
+                    .LockerNumber = l.LockerNumber,
+                    .SizeCode = l.SizeCode,
+                    .Zone = l.Zone,
+                    .IsEnabled = l.IsEnabled
+                })
                     Next
                 End Using
 
                 StatusText.Text = $"Loaded {_rows.Count} locker(s)."
-            Catch ex As Exception
-                StatusText.Text = "ERROR loading lockers: " & ex.Message
+
+                Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
+            .EventType = Audit.AuditEventType.PolicyConfigurationChange,
+            .ActorType = Audit.ActorType.Admin,
+            .ActorId = AdminActorID,
+            .AffectedComponent = "LockerSetupWindow",
+            .Outcome = Audit.AuditOutcome.Success,
+            .CorrelationId = actionId,
+            .ReasonCode = $"LockerConfigLoaded:Count={_rows.Count}"
+        })
+
+            Catch
+                StatusText.Text = "ERROR loading lockers."
+
+                Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
+            .EventType = Audit.AuditEventType.PolicyConfigurationChange,
+            .ActorType = Audit.ActorType.Admin,
+            .ActorId = AdminActorID,
+            .AffectedComponent = "LockerSetupWindow",
+            .Outcome = Audit.AuditOutcome.Error,
+            .CorrelationId = actionId,
+            .ReasonCode = "LockerConfigLoadFailed"
+        })
             End Try
+
         End Sub
+
 
         ' ---------- Helpers ----------
         Private Shared Function NormalizeBranch(branch As String) As String

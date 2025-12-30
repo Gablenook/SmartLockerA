@@ -6,6 +6,9 @@ Namespace SmartLockerKiosk
     Partial Public Class App
         Inherits Application
         Private Shared _mutex As Mutex
+        Public Sub New()
+            InitializeComponent()
+        End Sub
         Protected Overrides Sub OnStartup(e As StartupEventArgs)
 
             ' Enforce single-instance (prevents COM-port contention and double-start weirdness)

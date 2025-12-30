@@ -58,7 +58,6 @@ Namespace SmartLockerKiosk
             Public Property WorkOrderNumber As String
             Public Property WorkOrders As List(Of WorkOrderAuthItem) = New List(Of WorkOrderAuthItem)()
         End Class
-
         Private Enum ScreenState
             AwaitWorkflowChoice
             AwaitCredential
@@ -94,7 +93,6 @@ Namespace SmartLockerKiosk
         Private _sizeTiles As List(Of SizeTile) = New List(Of SizeTile)()
         Private _selectedSizeCode As String = Nothing
 
-
         Public Sub New()
             InitializeComponent()
             fadeIn = CType(FindResource("FadeInPrompt"), Storyboard)
@@ -127,6 +125,18 @@ Namespace SmartLockerKiosk
             _lockerController = New LockerControllerService()
 
             ResetToAwaitWorkflowChoice()
+
+            Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
+    .EventType = Audit.AuditEventType.SystemStartup,
+    .ActorType = Audit.ActorType.System,
+    .ActorId = "System:SmartLockerKiosk",
+    .AffectedComponent = "LockerAccessWindow",
+    .Outcome = Audit.AuditOutcome.Success,
+    .CorrelationId = Guid.NewGuid().ToString("N"),
+    .ReasonCode = "LockerAccessWindowLoaded"
+})
+
+
 
             FocusHidSink()
         End Sub
@@ -172,6 +182,8 @@ Namespace SmartLockerKiosk
             Dim wo As String = (If(rawWorkOrder, "")).Trim()
             If wo.Length = 0 Then Return
 
+            Dim actionId As String = Guid.NewGuid().ToString("N")
+
             ' --- debounce (same as credential) ---
             Dim now = DateTime.UtcNow
             If (now - _lastSubmitUtc) < _submitDebounce Then Return
@@ -200,6 +212,19 @@ Namespace SmartLockerKiosk
 
                         If match Is Nothing Then
                             _state = ScreenState.AwaitWorkOrder
+
+                            Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
+    .EventType = Audit.AuditEventType.AuthenticationAttempt, ' or WorkOrderSubmitted if you add it
+    .ActorType = Audit.ActorType.User,
+    .ActorId = If(_authResult IsNot Nothing, $"User:{_authResult.UserId}", "User:Unknown"),
+    .AffectedComponent = "LockerAccessWindow",
+    .Outcome = Audit.AuditOutcome.Denied,
+    .CorrelationId = actionId,
+    .ReasonCode = $"WorkOrderDenied:NotAuthorized;WO={wo};Source={source}"
+})
+
+
+
                             UserPromptText.Text = "Work Order not Recognized"
                             SafeFadeIn()
                             Return
@@ -268,7 +293,6 @@ Namespace SmartLockerKiosk
             End Try
 
         End Sub
-
         Private Function FindAuthorizedWorkOrder(scannedWorkOrder As String) As WorkOrderAuthItem
             Dim wo = (If(scannedWorkOrder, "")).Trim()
             If wo.Length = 0 Then Return Nothing
@@ -329,32 +353,23 @@ Namespace SmartLockerKiosk
             FocusHidSink()
         End Sub
         Private Async Sub SubmitCredential(rawCredential As String, source As String)
+
             ' --- normalize input ---
             Dim credential As String = (If(rawCredential, "")).Trim()
 
             ' Empty submit should NOT consume debounce window
-            If credential.Length = 0 Then
-                Return
-            End If
+            If credential.Length = 0 Then Return
 
             ' --- debounce (handles keypad double-fire etc.) ---
             Dim now = DateTime.UtcNow
-            If (now - _lastSubmitUtc) < _submitDebounce Then
-                Return
-            End If
+            If (now - _lastSubmitUtc) < _submitDebounce Then Return
             _lastSubmitUtc = now
 
             ' --- state guards ---
-            If _state = ScreenState.ValidatingCredential Then
-                Return
-            End If
+            If _state = ScreenState.ValidatingCredential Then Return
 
-            If _state <> ScreenState.AwaitCredential AndAlso _state <> ScreenState.AwaitAdminCredential Then
-                Return
-            End If
-
-            ' IMPORTANT: capture admin-vs-normal BEFORE changing _state
             Dim isAdminFlow As Boolean = (_state = ScreenState.AwaitAdminCredential)
+            If _state <> ScreenState.AwaitCredential AndAlso Not isAdminFlow Then Return
 
             ' For normal (non-admin) flow, we must have a selected workflow
             If Not isAdminFlow AndAlso Not _selectedWorkflow.HasValue Then
@@ -373,10 +388,23 @@ Namespace SmartLockerKiosk
             UserPromptText.Text = "Validating…"
             SafeFadeIn()
 
+            Dim actionId As String = Guid.NewGuid().ToString("N") ' correlation id for this auth attempt
+
             Try
                 Dim result As AuthResult = Await ValidateCredentialWithServerAsync(credential, purpose)
 
                 If result Is Nothing OrElse Not result.IsAuthorized Then
+                    ' AUDIT: denied auth attempt (no validated identity, do NOT log credential)
+                    Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
+                .EventType = Audit.AuditEventType.AuthenticationAttempt,
+                .ActorType = If(isAdminFlow, Audit.ActorType.Admin, Audit.ActorType.User),
+                .ActorId = If(isAdminFlow, "Admin:Unknown", "User:Unknown"),
+                .AffectedComponent = "AuthService",
+                .Outcome = Audit.AuditOutcome.Denied,
+                .CorrelationId = actionId,
+                .ReasonCode = If(isAdminFlow, "AdminAuthDenied", "UserAuthDenied")
+            })
+
                     ' Stay in credential prompt for retry (admin stays admin; normal stays normal)
                     _state = If(isAdminFlow, ScreenState.AwaitAdminCredential, ScreenState.AwaitCredential)
                     UserPromptText.Text = If(result?.Message, "Credential not recognized")
@@ -384,14 +412,30 @@ Namespace SmartLockerKiosk
                     Return
                 End If
 
+                ' Persist auth result into your current workflow context
                 _authResult = result
                 _authorizedWorkOrders = If(result.WorkOrders, New List(Of WorkOrderAuthItem)())
                 _activeWorkOrder = Nothing
 
+                ' AUDIT: successful auth attempt (use validated identity; do NOT log credential)
+                Dim actorType As Audit.ActorType = If(purpose = AuthPurpose.AdminAccess, Audit.ActorType.Admin, Audit.ActorType.User)
+                Dim actorId As String =
+            If(purpose = AuthPurpose.AdminAccess, $"Admin:{result.UserId}", $"User:{result.UserId}")
+
+                Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
+            .EventType = Audit.AuditEventType.AuthenticationAttempt,
+            .ActorType = actorType,
+            .ActorId = actorId,
+            .AffectedComponent = "AuthService",
+            .Outcome = Audit.AuditOutcome.Success,
+            .CorrelationId = actionId,
+            .ReasonCode = If(purpose = AuthPurpose.AdminAccess, "AdminAuthSucceeded", "UserAuthSucceeded")
+        })
 
                 ' ===== ADMIN SHORT-CIRCUIT =====
                 If purpose = AuthPurpose.AdminAccess Then
-                    ShowAdminPanel(Me, EventArgs.Empty)
+                    ' ShowAdminPanelAsync should now accept AuthResult and NOT re-authenticate
+                    Await ShowAdminPanelAsync(result)
                     ResetToAwaitWorkflowChoice()
                     Return
                 End If
@@ -401,6 +445,17 @@ Namespace SmartLockerKiosk
                 Await ContinueWorkflowAfterAuthAsync(_selectedWorkflow.Value, result)
 
             Catch ex As Exception
+                ' AUDIT: auth system failure (no credential, no sensitive detail)
+                Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
+            .EventType = Audit.AuditEventType.AuthenticationAttempt,
+            .ActorType = If(isAdminFlow, Audit.ActorType.Admin, Audit.ActorType.User),
+            .ActorId = If(isAdminFlow, "Admin:Unknown", "User:Unknown"),
+            .AffectedComponent = "AuthService",
+            .Outcome = Audit.AuditOutcome.Error,
+            .CorrelationId = actionId,
+            .ReasonCode = "AuthServiceUnavailable"
+        })
+
                 ResetToAwaitWorkflowChoice()
                 UserPromptText.Text = "System unavailable"
                 SafeFadeIn()
@@ -411,7 +466,9 @@ Namespace SmartLockerKiosk
                 SetUiEnabled(True)
                 FocusHidSink()
             End Try
+
         End Sub
+
         Private Function GetPurposeForWorkflow(mode As WorkflowMode) As AuthPurpose
             Select Case mode
                 Case WorkflowMode.Pickup
@@ -455,14 +512,38 @@ Namespace SmartLockerKiosk
         Private Sub SafeFadeIn()
             Try : fadeIn.Begin() : Catch : End Try
         End Sub
+
         Private Sub PickupButton_Click(sender As Object, e As RoutedEventArgs) Handles PickupButton.Click
             If _state <> ScreenState.AwaitWorkflowChoice Then Return
+
             _selectedWorkflow = WorkflowMode.Pickup
+
+            Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
+        .EventType = Audit.AuditEventType.PolicyConfigurationChange, ' or WorkflowSelected if you add it
+        .ActorType = Audit.ActorType.User,
+        .ActorId = "User:Unknown",
+        .AffectedComponent = "LockerAccessWindow",
+        .Outcome = Audit.AuditOutcome.Success,
+        .CorrelationId = Guid.NewGuid().ToString("N"),
+        .ReasonCode = "WorkflowSelected:Pickup"
+    })
+
             PromptForCredential()
         End Sub
+
         Private Sub DeliverButton_Click(sender As Object, e As RoutedEventArgs) Handles DeliverButton.Click
             If _state <> ScreenState.AwaitWorkflowChoice Then Return
             _selectedWorkflow = WorkflowMode.Delivery
+
+            Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
+        .EventType = Audit.AuditEventType.PolicyConfigurationChange, ' or WorkflowSelected if you add it
+        .ActorType = Audit.ActorType.User,
+        .ActorId = "User:Unknown",
+        .AffectedComponent = "LockerAccessWindow",
+        .Outcome = Audit.AuditOutcome.Success,
+        .CorrelationId = Guid.NewGuid().ToString("N"),
+        .ReasonCode = "WorkflowSelected:Pickup"
+    })
             PromptForCredential()
         End Sub
 
@@ -471,6 +552,7 @@ Namespace SmartLockerKiosk
         '     _selectedWorkflow = WorkflowMode.DayUse
         '     PromptForCredential()
         ' End Sub
+
         Private Sub AdminLogo_MouseLeftButtonUp(sender As Object, e As MouseButtonEventArgs)
             If _state = ScreenState.ValidatingCredential Then Return
 
@@ -486,13 +568,52 @@ Namespace SmartLockerKiosk
             DeliverButton.IsEnabled = False
 
             KeypadControl.Reset()
+
+            Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
+    .EventType = Audit.AuditEventType.AuthenticationAttempt,
+    .ActorType = Audit.ActorType.Admin,
+    .ActorId = "Admin:Unknown",
+    .AffectedComponent = "LockerAccessWindow",
+    .Outcome = Audit.AuditOutcome.Success,
+    .CorrelationId = Guid.NewGuid().ToString("N"),
+    .ReasonCode = "AdminLoginPrompted"
+})
+
+
+
             FocusHidSink()
         End Sub
-        Private Sub ShowAdminPanel(sender As Object, e As EventArgs)
-            Dim adminScreen As New AdminScreen With {.Owner = Me}
-            adminScreen.ShowDialog()
+        Private Async Function ShowAdminPanelAsync(result As AuthResult) As Task
+
+            Dim actionId As String = Guid.NewGuid().ToString("N")
+
+            ' We already know this is authorized AdminAccess
+            Dim adminActorId As String = $"Admin:{result.UserId}"
+
+            ' AUDIT: admin authentication success
+            Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
+        .EventType = Audit.AuditEventType.AuthenticationAttempt,
+        .ActorType = Audit.ActorType.Admin,
+        .ActorId = adminActorId,
+        .AffectedComponent = "AuthService",
+        .Outcome = Audit.AuditOutcome.Success,
+        .CorrelationId = actionId,
+        .ReasonCode = "AdminAuthSucceeded"
+    })
+
+            Dim w As New AdminScreen With {
+        .Owner = Me,
+        .AdminActorId = adminActorId
+    }
+
+            w.ShowDialog()
+
             FocusHidSink()
-        End Sub
+
+        End Function
+
+
+
         Private Sub ShowLockerSizeSelection()
             SizeSelectionPanel.Visibility = Visibility.Visible
             ' Populate tiles here if you haven’t already
@@ -660,7 +781,6 @@ Namespace SmartLockerKiosk
                 Return
             End If
         End Sub
-
         Private Async Function AssignDeliveryLockerWithServerAsync(
     workOrderNumber As String,
     sizeCode As String,
@@ -697,7 +817,6 @@ Namespace SmartLockerKiosk
             ' - courier identity (courierAuth.UserId / SessionToken)
             ' - timestamp, etc.
         End Function
-
         Private Sub CloseButton_Click(sender As Object, e As RoutedEventArgs)
             Me.Close()
         End Sub
@@ -719,7 +838,7 @@ Namespace SmartLockerKiosk
                             .IsAuthorized = True,
                             .Purpose = purpose,
                             .Message = "OK",
-                            .UserId = "USER1",
+                            .UserId = "ADMIN1",
                             .DisplayName = "Test Pickup User",
                             .WorkOrderNumber = "WO-10001",
                             .LockerNumber = "A-001",
@@ -807,6 +926,21 @@ Namespace SmartLockerKiosk
             End Select
 
         End Function
+
+        Private Function CurrentActorId(actorType As Audit.ActorType) As String
+            If _authResult IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(_authResult.UserId) Then
+                Select Case actorType
+                    Case Audit.ActorType.Admin
+                        Return $"Admin:{_authResult.UserId}"
+                    Case Else
+                        Return $"User:{_authResult.UserId}"
+                End Select
+            End If
+            Return If(actorType = Audit.ActorType.Admin, "Admin:Unknown", "User:Unknown")
+        End Function
+
+
+
     End Class
 End Namespace
 

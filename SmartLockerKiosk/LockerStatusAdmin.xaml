@@ -1,0 +1,98 @@
+﻿<Window x:Class="LockerStatusAdmin"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:SmartLockerKiosk"
+        mc:Ignorable="d"
+        Title="Locker Status Admin" Height="520" Width="980"
+        WindowStartupLocation="CenterOwner">
+
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Top bar -->
+        <DockPanel Grid.Row="0" LastChildFill="False" Margin="0,0,0,8">
+            <TextBlock DockPanel.Dock="Left"
+                       Text="Edit locker status. Change fields, then click Save."
+                       FontSize="14"
+                       VerticalAlignment="Center"/>
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                <Button x:Name="ReloadButton" Content="Reload" Width="100" Margin="8,0,0,0"
+                        Click="Reload_Click"/>
+                <Button x:Name="SaveButton" Content="Save" Width="100" Margin="8,0,0,0"
+                        Click="Save_Click"/>
+                <Button x:Name="CloseButton" Content="Close" Width="100" Margin="8,0,0,0"
+                        Click="Close_Click"/>
+            </StackPanel>
+        </DockPanel>
+
+        <!-- DataGrid -->
+        <DataGrid x:Name="GridStatus"
+                  Grid.Row="1"
+                  AutoGenerateColumns="False"
+                  CanUserAddRows="False"
+                  CanUserDeleteRows="False"
+                  IsReadOnly="False"
+                  SelectionMode="Extended"
+                  SelectionUnit="FullRow"
+                  HeadersVisibility="Column"
+                  GridLinesVisibility="All">
+
+            <DataGrid.Columns>
+                <!-- Read-only identity -->
+                <DataGridTextColumn Header="LockerId" Binding="{Binding LockerId}" IsReadOnly="True" Width="80"/>
+                <DataGridTextColumn Header="LockerNumber" Binding="{Binding LockerNumber}" IsReadOnly="True" Width="120"/>
+                <DataGridTextColumn Header="Branch" Binding="{Binding Branch}" IsReadOnly="True" Width="70"/>
+                <DataGridTextColumn Header="RelayId" Binding="{Binding RelayId}" IsReadOnly="True" Width="70"/>
+                <DataGridTextColumn Header="Size" Binding="{Binding SizeCode}" IsReadOnly="True" Width="70"/>
+
+                <!-- Editable status fields -->
+                <DataGridComboBoxColumn Header="Occupancy"
+                                        SelectedItemBinding="{Binding OccupancyState, UpdateSourceTrigger=PropertyChanged}"
+                                        Width="140"/>
+
+                <DataGridComboBoxColumn Header="Lock"
+                                        SelectedItemBinding="{Binding LockState, UpdateSourceTrigger=PropertyChanged}"
+                                        Width="110"/>
+
+                <DataGridCheckBoxColumn Header="Package?"
+                                        Binding="{Binding PackagePresent, UpdateSourceTrigger=PropertyChanged}"
+                                        Width="90"/>
+
+                <DataGridTextColumn Header="Reason"
+                                    Binding="{Binding Reason, UpdateSourceTrigger=PropertyChanged}"
+                                    Width="200"/>
+
+                <DataGridTextColumn Header="ReservedUntilUtc"
+                                    Binding="{Binding ReservedUntilUtc}"
+                                    IsReadOnly="True"
+                                    Width="160"/>
+
+                <DataGridTextColumn Header="Reserved WO"
+                                    Binding="{Binding ReservedWorkOrderNumber}"
+                                    IsReadOnly="True"
+                                    Width="120"/>
+
+                <DataGridTextColumn Header="LastUpdatedUtc"
+                                    Binding="{Binding LastUpdatedUtc}"
+                                    IsReadOnly="True"
+                                    Width="160"/>
+
+                <DataGridTextColumn Header="LastActorId"
+                                    Binding="{Binding LastActorId}"
+                                    IsReadOnly="True"
+                                    Width="140"/>
+            </DataGrid.Columns>
+        </DataGrid>
+
+        <!-- Status bar -->
+        <Border Grid.Row="2" Margin="0,8,0,0" Padding="8" Background="#FFEFEFEF" CornerRadius="6">
+            <TextBlock x:Name="StatusText" Text="Ready."/>
+        </Border>
+    </Grid>
+</Window>

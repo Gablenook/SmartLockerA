@@ -8,6 +8,7 @@
         MFAChallengeFailed
 
         ' Locker / Custody
+        LockerOpenAttempt
         LockerDoorOpen
         LockerDoorDenied
         AssetDeposited

@@ -12,5 +12,6 @@ Public Class Locker
     Public Property IsEnabled As Boolean = True
     Public Overridable Property Status As LockerStatus   ' ✅ add this
     Public Overridable Property Size As LockerSize
+
 End Class
 

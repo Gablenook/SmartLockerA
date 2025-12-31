@@ -243,10 +243,30 @@ Namespace SmartLockerKiosk
                         SafeFadeIn()
 
                         Try
+                            Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
+    .EventType = Audit.AuditEventType.LockerOpenAttempt,
+    .ActorType = Audit.ActorType.User,
+    .ActorId = If(_authResult IsNot Nothing, $"User:{_authResult.UserId}", "User:Unknown"),
+    .AffectedComponent = "LockerControllerService",
+    .Outcome = Audit.AuditOutcome.Success, ' assume success; flip on catch
+    .CorrelationId = actionId,
+    .ReasonCode = $"PickupOpenRequested;WO={wo};Locker={match.LockerNumber}"
+})
+
                             _lockerController.UnlockByLockerNumber(match.LockerNumber)
                             UserPromptText.Text = $"Locker {match.LockerNumber} opened."
                             SafeFadeIn()
                         Catch
+                            Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
+    .EventType = Audit.AuditEventType.LockerOpenAttempt,
+    .ActorType = Audit.ActorType.User,
+    .ActorId = If(_authResult IsNot Nothing, $"User:{_authResult.UserId}", "User:Unknown"),
+    .AffectedComponent = "LockerControllerService",
+    .Outcome = Audit.AuditOutcome.Error,
+    .CorrelationId = actionId,
+    .ReasonCode = $"PickupOpenFailed;WO={wo};Locker={match.LockerNumber}"
+})
+
                             UserPromptText.Text = $"Unable to open locker {match.LockerNumber}. Please contact attendant."
                             SafeFadeIn()
                         End Try
@@ -264,6 +284,16 @@ Namespace SmartLockerKiosk
                     .LockerNumber = "",
                     .AllowedSizeCode = ""
                 }
+                        Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
+    .EventType = Audit.AuditEventType.PolicyConfigurationChange, ' or WorkOrderCaptured
+    .ActorType = Audit.ActorType.User,
+    .ActorId = If(_courierAuth IsNot Nothing, $"User:{_courierAuth.UserId}", "User:Unknown"),
+    .AffectedComponent = "LockerAccessWindow",
+    .Outcome = Audit.AuditOutcome.Success,
+    .CorrelationId = actionId,
+    .ReasonCode = $"DeliveryWorkOrderCaptured;WO={wo};Source={source}"
+})
+
 
                         UserPromptText.Text = $"Select compartment size."
                         SafeFadeIn()
@@ -677,6 +707,7 @@ Namespace SmartLockerKiosk
     }
         End Function
         Private Async Sub SelectSizeAndAssignLocker(sizeCode As String)
+            Dim actionId As String = Guid.NewGuid().ToString("N")
             Dim code = (If(sizeCode, "")).Trim().ToUpperInvariant()
             If code.Length = 0 Then Return
 
@@ -718,6 +749,16 @@ Namespace SmartLockerKiosk
             Await AssignDeliveryLockerWithServerAsync(_activeWorkOrder.WorkOrderNumber, code, _courierAuth)
 
                 If String.IsNullOrWhiteSpace(assignedLockerNumber) Then
+                    Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
+    .EventType = Audit.AuditEventType.PolicyConfigurationChange, ' or LockerAssignmentAttempt
+    .ActorType = Audit.ActorType.User,
+    .ActorId = If(_courierAuth IsNot Nothing, $"User:{_courierAuth.UserId}", "User:Unknown"),
+    .AffectedComponent = "AssignDeliveryLockerWithServerAsync",
+    .Outcome = Audit.AuditOutcome.Denied,
+    .CorrelationId = actionId,
+    .ReasonCode = $"DeliveryAssignDenied:NoAvailability;WO={_activeWorkOrder.WorkOrderNumber};Size={code}"
+})
+
                     UserPromptText.Text = $"No {code} compartments are available. Select a different size."
                     SafeFadeIn()
 
@@ -726,12 +767,42 @@ Namespace SmartLockerKiosk
                 End If
 
                 ' 2) Open locker (no await here)
+                Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
+    .EventType = Audit.AuditEventType.PolicyConfigurationChange, ' or LockerAssignmentAttempt
+    .ActorType = Audit.ActorType.User,
+    .ActorId = If(_courierAuth IsNot Nothing, $"User:{_courierAuth.UserId}", "User:Unknown"),
+    .AffectedComponent = "AssignDeliveryLockerWithServerAsync",
+    .Outcome = Audit.AuditOutcome.Success,
+    .CorrelationId = actionId,
+    .ReasonCode = $"DeliveryAssignSucceeded;WO={_activeWorkOrder.WorkOrderNumber};Size={code};Locker={assignedLockerNumber}"
+})
+
                 UserPromptText.Text = $"Opening locker {assignedLockerNumber}…"
                 SafeFadeIn()
 
                 Try
+                    Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
+    .EventType = Audit.AuditEventType.LockerOpenAttempt,
+    .ActorType = Audit.ActorType.User,
+    .ActorId = If(_courierAuth IsNot Nothing, $"User:{_courierAuth.UserId}", "User:Unknown"),
+    .AffectedComponent = "LockerControllerService",
+    .Outcome = Audit.AuditOutcome.Success,
+    .CorrelationId = actionId,
+    .ReasonCode = $"DeliveryOpenRequested;WO={_activeWorkOrder.WorkOrderNumber};Locker={assignedLockerNumber}"
+})
+
                     _lockerController.UnlockByLockerNumber(assignedLockerNumber)
                 Catch
+                    Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
+    .EventType = Audit.AuditEventType.LockerOpenAttempt,
+    .ActorType = Audit.ActorType.User,
+    .ActorId = If(_courierAuth IsNot Nothing, $"User:{_courierAuth.UserId}", "User:Unknown"),
+    .AffectedComponent = "LockerControllerService",
+    .Outcome = Audit.AuditOutcome.Error,
+    .CorrelationId = actionId,
+    .ReasonCode = $"DeliveryOpenFailed;WO={_activeWorkOrder.WorkOrderNumber};Locker={assignedLockerNumber}"
+})
+
                     UserPromptText.Text = $"Unable to open locker {assignedLockerNumber}"
                     SafeFadeIn()
 
@@ -805,6 +876,7 @@ Namespace SmartLockerKiosk
     lockerNumber As String,
     courierAuth As AuthResult
 ) As Task
+
 
             Await Task.Delay(100) ' simulate latency
 

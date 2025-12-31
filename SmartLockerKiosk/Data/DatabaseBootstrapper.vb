@@ -19,14 +19,17 @@ Public Module DatabaseBootstrapper
 
         Return New KioskDbContext(options)
     End Function
-
     Public Sub InitializeDatabase()
         Using db = BuildDbContext()
             db.Database.EnsureCreated()
+
             SeedLockerSizesIfMissing(db)
+            SeedLockerStatusesIfMissing(db)
+
+            ' NEW: status rows for each locker
+            SeedLockerStatusesIfMissing(db)
         End Using
     End Sub
-
     Private Sub SeedLockerSizesIfMissing(db As KioskDbContext)
         If db.LockerSizes.Any() Then Return
 
@@ -39,6 +42,35 @@ Public Module DatabaseBootstrapper
         )
 
         db.SaveChanges()
+    End Sub
+    Private Sub SeedLockerStatusesIfMissing(db As KioskDbContext)
+
+        ' If there are no lockers configured yet, nothing to do
+        If Not db.Lockers.Any() Then Return
+
+        ' Get locker ids and existing status ids
+        Dim lockerIds = db.Lockers.Select(Function(l) l.LockerId).ToList()
+        Dim existingStatusIds = db.LockerStatuses.Select(Function(s) s.LockerId).ToHashSet()
+
+        Dim nowUtc = DateTime.UtcNow
+        Dim added As Integer = 0
+
+        For Each id In lockerIds
+            If Not existingStatusIds.Contains(id) Then
+                db.LockerStatuses.Add(New LockerStatus With {
+                .LockerId = id,
+                .LockState = LockState.Unknown,
+                .OccupancyState = OccupancyState.Unknown, ' or Available/Vacant if you prefer
+                .LastUpdatedUtc = nowUtc
+            })
+                added += 1
+            End If
+        Next
+
+        If added > 0 Then
+            db.SaveChanges()
+        End If
+
     End Sub
 
 

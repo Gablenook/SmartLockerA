@@ -50,19 +50,58 @@ Public Class KioskDbContext
 
         ' Optional fields
         e.Property(Function(x) x.SizeCode).
-        HasMaxLength(1)
+        HasMaxLength(10)
 
         e.Property(Function(x) x.Zone).
         HasMaxLength(30)
     End Sub
-    Private Shared Sub ConfigureLockerStatus(modelBuilder As ModelBuilder)
-        Dim e = modelBuilder.Entity(Of LockerStatus)()
+    Private Sub ConfigureLockerStatus(modelBuilder As ModelBuilder)
 
-        ' LockerStatus is 1:1 with Locker, keyed by LockerId
-        e.HasKey(Function(x) x.LockerId)
+        modelBuilder.Entity(Of LockerStatus)(
+        Sub(e)
 
-        ' If you have additional fields you want constrained, do them here
-        ' e.Property(Function(x) x.LastUpdatedUtc).IsRequired()
+            ' PK
+            e.HasKey(Function(x) x.LockerId)
+
+            ' Enums stored as integers (default, but explicit is nice)
+            e.Property(Function(x) x.LockState).HasConversion(Of Integer)()
+            e.Property(Function(x) x.OccupancyState).HasConversion(Of Integer)()
+
+            ' Optional flags
+            e.Property(Function(x) x.PackagePresent).IsRequired(False)
+
+            ' Timestamps
+            e.Property(Function(x) x.LastUpdatedUtc).IsRequired()
+
+            ' If you add these fields:
+            e.Property(Function(x) x.ReservedUntilUtc).IsRequired(False)
+
+            e.Property(Function(x) x.ReservedCorrelationId).
+                HasMaxLength(64).
+                IsRequired(False)
+
+            e.Property(Function(x) x.ReservedWorkOrderNumber).
+                HasMaxLength(64).
+                IsRequired(False)
+
+            e.Property(Function(x) x.LastWorkOrderNumber).
+                HasMaxLength(64).
+                IsRequired(False)
+
+            e.Property(Function(x) x.LastActorId).
+                HasMaxLength(64).
+                IsRequired(False)
+
+            e.Property(Function(x) x.LastReason).
+                HasMaxLength(64).
+                IsRequired(False)
+
+            ' Helpful indexes for fast assignment queries
+            e.HasIndex(Function(x) x.OccupancyState)
+            e.HasIndex(Function(x) x.ReservedUntilUtc)
+
+        End Sub)
+
     End Sub
     Private Shared Sub ConfigureLockerToStatusRelationship(modelBuilder As ModelBuilder)
         modelBuilder.Entity(Of Locker)().
@@ -104,15 +143,6 @@ Public Class KioskDbContext
 
         ' Helpful index for ordering enabled sizes
         e.HasIndex(Function(x) New With {x.IsEnabled, x.SortOrder})
-
-        e.HasData(
-        New LockerSize With {.SizeCode = "A", .DisplayName = "Small", .WidthIn = 10D, .HeightIn = 6D, .DepthIn = 14D, .SortOrder = 1, .IsEnabled = True},
-        New LockerSize With {.SizeCode = "B", .DisplayName = "Medium", .WidthIn = 12D, .HeightIn = 10D, .DepthIn = 16D, .SortOrder = 2, .IsEnabled = True},
-        New LockerSize With {.SizeCode = "C", .DisplayName = "Large", .WidthIn = 15D, .HeightIn = 12D, .DepthIn = 18D, .SortOrder = 3, .IsEnabled = True},
-        New LockerSize With {.SizeCode = "D", .DisplayName = "XL", .WidthIn = 18D, .HeightIn = 15D, .DepthIn = 20D, .SortOrder = 4, .IsEnabled = True},
-        New LockerSize With {.SizeCode = "E", .DisplayName = "Oversize", .WidthIn = 24D, .HeightIn = 18D, .DepthIn = 24D, .SortOrder = 5, .IsEnabled = True}
-    )
-
     End Sub
     Private Shared Sub ConfigureLockerToSizeRelationship(modelBuilder As ModelBuilder)
         ' Locker.SizeCode -> LockerSize.SizeCode (optional relationship)

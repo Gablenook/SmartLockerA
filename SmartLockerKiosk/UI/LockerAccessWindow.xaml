@@ -172,13 +172,54 @@
                                            Margin="0,0,0,10"/>
 
                                 <ScrollViewer VerticalScrollBarVisibility="Auto"
-                                              HorizontalScrollBarVisibility="Disabled">
+              HorizontalScrollBarVisibility="Disabled">
                                     <ItemsControl x:Name="SizeTilesItems">
                                         <ItemsControl.ItemsPanel>
                                             <ItemsPanelTemplate>
                                                 <WrapPanel HorizontalAlignment="Center"/>
                                             </ItemsPanelTemplate>
                                         </ItemsControl.ItemsPanel>
+
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Button Click="SizeTile_Click"
+                        Tag="{Binding SizeCode}"
+                        Margin="8"
+                        Padding="14"
+                        Background="#3399FF"
+                        Foreground="White"
+                        BorderThickness="0"
+                        Width="210"
+                        Height="140"
+                        FontFamily="Segoe UI">
+
+                                                    <Border CornerRadius="18" Background="#3399FF">
+                                                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+
+                                                            <TextBlock Text="{Binding DisplayName}"
+                                       FontSize="22"
+                                       FontWeight="Bold"
+                                       TextAlignment="Center"
+                                       Margin="0,0,0,6"/>
+
+                                                            <TextBlock Text="{Binding DimText}"
+                                       FontSize="14"
+                                       Opacity="0.90"
+                                       TextAlignment="Center"
+                                       Margin="0,0,0,10"/>
+
+                                                            <!-- Simple "thumbnail" box showing relative proportions -->
+                                                            <Border Width="{Binding ThumbWidth}"
+                                    Height="{Binding ThumbHeight}"
+                                    BorderBrush="White"
+                                    BorderThickness="2"
+                                    CornerRadius="8"
+                                    Opacity="0.85"/>
+                                                        </StackPanel>
+                                                    </Border>
+                                                </Button>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
                                     </ItemsControl>
                                 </ScrollViewer>
                             </StackPanel>

@@ -12,180 +12,275 @@
             <sys:String>A</sys:String>
             <sys:String>B</sys:String>
         </x:Array>
+
+        <!-- Common button style for this screen -->
+        <Style x:Key="PrimaryButton" TargetType="Button">
+            <Setter Property="Width" Value="210"/>
+            <Setter Property="Height" Value="60"/>
+            <Setter Property="FontSize" Value="22"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="0,0,12,12"/>
+        </Style>
+
+        <Style x:Key="DangerButton" TargetType="Button" BasedOn="{StaticResource PrimaryButton}">
+            <Setter Property="Background" Value="#CCFF3B30"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Width" Value="200"/>
+            <Setter Property="Height" Value="132"/>
+            <Setter Property="Margin" Value="0"/>
+        </Style>
     </Window.Resources>
 
-    <Grid>
-        <!-- Scale the whole admin UI to the screen, like the kiosk -->
-        <Viewbox Stretch="Uniform">
-            <!-- Design surface -->
-            <Grid Width="800" Height="1200" Margin="20" Background="#00205B">
+    <!-- ONE root content -->
+    <Grid Margin="10">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <!-- Live monitor -->
+            <RowDefinition Height="*"/>
+            <!-- Main kiosk UI -->
+        </Grid.RowDefinitions>
 
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="*"/>
-                    <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
+        <!-- Live Port Monitor -->
+        <GroupBox Grid.Row="0"
+                  Header="Live Port Monitor (1-8)"
+                  Foreground="White"
+                  Margin="0,0,0,10">
+            <Border Background="#20FFFFFF" Padding="10" CornerRadius="10">
+                <DockPanel LastChildFill="True">
 
-                <!-- Top buttons -->
-                <Border Grid.Row="0"
-        CornerRadius="14"
-        Background="#30FFFFFF"
-        Padding="14"
-        Margin="0,0,0,14">
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                        <Button x:Name="StartLiveMonitorButton"
+                                Content="Start"
+                                Width="160"
+                                Height="36"
+                                Margin="0,0,8,0"
+                                Click="StartLiveMonitor_Click"/>
+                        <Button x:Name="StopLiveMonitorButton"
+                                Content="Stop"
+                                Width="160"
+                                Height="36"
+                                Margin="0,0,12,0"
+                                Click="StopLiveMonitor_Click"
+                                IsEnabled="False"/>
+                        <TextBlock x:Name="LiveMonitorStatusText"
+                                   VerticalAlignment="Center"
+                                   Foreground="White"
+                                   Text="Monitor stopped."/>
+                    </StackPanel>
 
-                        <!-- LEFT: 2 rows x 2 columns, uniform sizing -->
-                        <Grid Grid.Column="0" Margin="0,0,14,0">
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="Auto"/>
-                            </Grid.RowDefinitions>
+                    <DataGrid x:Name="LiveMonitorGrid"
+                              AutoGenerateColumns="False"
+                              IsReadOnly="True"
+                              HeadersVisibility="Column"
+                              CanUserAddRows="False"
+                              CanUserDeleteRows="False"
+                              GridLinesVisibility="All"
+                              RowHeight="34"
+                              ColumnHeaderHeight="34"
+                              FontSize="16"
+                              Background="White"
+                              Height="220">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Port" Binding="{Binding RelayId}" Width="60"/>
+                            <DataGridTextColumn Header="Lock" Binding="{Binding LockStatus}" Width="70"/>
+                            <DataGridTextColumn Header="Sensor" Binding="{Binding SensorStatus}" Width="80"/>
+                            <DataGridTextColumn Header="Last Change (ms)" Binding="{Binding LastChangeMs}" Width="140"/>
+                            <DataGridTextColumn Header="Notes" Binding="{Binding Notes}" Width="*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+
+                </DockPanel>
+            </Border>
+        </GroupBox>
+
+        <!-- Main kiosk-style UI -->
+        <Grid Grid.Row="1">
+            <Viewbox Stretch="Uniform">
+                <Grid Width="800" Height="1200" Margin="20" Background="#00205B">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Top / Commissioning + CRUD toolbar -->
+                    <Border Grid.Row="0"
+                            CornerRadius="14"
+                            Background="#30FFFFFF"
+                            Padding="14"
+                            Margin="0,0,0,14">
+                        <Grid>
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
 
-                            <!-- Row 0 -->
-                            <Button Grid.Row="0" Grid.Column="0"
-                    Content="Load"
-                    Width="240" Height="60"
-                    Margin="0,0,12,12"
-                    Click="Load_Click"
-                    FontSize="22" FontWeight="SemiBold"/>
+                            <!-- LEFT: Buttons (3 rows x 3 columns) -->
+                            <Grid Grid.Column="0" Margin="0,0,14,0">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
 
-                            <Button Grid.Row="0" Grid.Column="1"
-                    Content="Add Locker"
-                    Width="240" Height="60"
-                    Margin="0,0,0,12"
-                    Click="Add_Click"
-                    FontSize="22" FontWeight="SemiBold"/>
+                                <!-- Row 0: Commissioning -->
+                                <Button Grid.Row="0" Grid.Column="0"
+                                        x:Name="ScanForLockersButton"
+                                        Content="Scan For Lockers"
+                                        Style="{StaticResource PrimaryButton}"
+                                        Click="ScanForLockers_Click"/>
 
-                            <!-- Row 1 -->
-                            <Button Grid.Row="1" Grid.Column="0"
-                    Content="Remove Selected"
-                    Width="240" Height="60"
-                    Margin="0,0,12,0"
-                    Click="Remove_Click"
-                    FontSize="22" FontWeight="SemiBold"/>
+                                <Button Grid.Row="0" Grid.Column="1"
+                                        x:Name="AutoNumberButton"
+                                        Content="Auto Number"
+                                        Style="{StaticResource PrimaryButton}"
+                                        Click="AutoNumber_Click"
+                                        IsEnabled="False"/>
 
-                            <Button Grid.Row="1" Grid.Column="1"
-                    Content="Save"
-                    Width="240" Height="60"
-                    Margin="0,0,0,0"
-                    Click="Save_Click"
-                    FontSize="22" FontWeight="SemiBold"/>
+                                <Button Grid.Row="0" Grid.Column="2"
+                                        x:Name="CommitDiscoveredButton"
+                                        Content="Commit Discovered"
+                                        Style="{StaticResource PrimaryButton}"
+                                        Click="CommitDiscovered_Click"
+                                        IsEnabled="False"/>
+
+                                <!-- Row 1: Data management -->
+                                <Button Grid.Row="1" Grid.Column="0"
+                                        Content="Load"
+                                        Style="{StaticResource PrimaryButton}"
+                                        Click="Load_Click"/>
+
+                                <Button Grid.Row="1" Grid.Column="1"
+                                        Content="Add Locker"
+                                        Style="{StaticResource PrimaryButton}"
+                                        Click="Add_Click"/>
+
+                                <Button Grid.Row="1" Grid.Column="2"
+                                        Content="Remove Selected"
+                                        Style="{StaticResource PrimaryButton}"
+                                        Click="Remove_Click"/>
+
+                                <!-- Row 2: Save -->
+                                <Button Grid.Row="2" Grid.Column="0"
+                                        Content="Save"
+                                        Style="{StaticResource PrimaryButton}"
+                                        Margin="0,0,12,0"
+                                        Click="Save_Click"/>
+
+                                <!-- Keep spacing consistent -->
+                                <Border Grid.Row="2" Grid.Column="1" Width="210" Height="60" Background="Transparent" Margin="0,0,12,0"/>
+                                <Border Grid.Row="2" Grid.Column="2" Width="210" Height="60" Background="Transparent" Margin="0,0,0,0"/>
+                            </Grid>
+
+                            <!-- RIGHT: Close -->
+                            <Button Grid.Column="1"
+                                    x:Name="CloseButton"
+                                    Content="Close"
+                                    Style="{StaticResource DangerButton}"
+                                    Click="Close_Click"
+                                    HorizontalAlignment="Right"
+                                    VerticalAlignment="Top"/>
                         </Grid>
+                    </Border>
 
-                        <!-- RIGHT: Close spans both rows and stays aligned -->
-                        <Button Grid.Column="1"
-                Content="Close"
-                Width="200" Height="132"
-                Click="Close_Click"
-                FontSize="22" FontWeight="SemiBold"
-                Background="#CCFF3B30"
-                Foreground="White"
-                HorizontalAlignment="Right"
-                VerticalAlignment="Top"/>
-                    </Grid>
-                </Border>
+                    <!-- Data grid -->
+                    <Border Grid.Row="1"
+                            CornerRadius="14"
+                            Background="#20FFFFFF"
+                            Padding="12"
+                            Margin="0,0,0,14">
+                        <DataGrid x:Name="LockersGrid"
+                                  AutoGenerateColumns="False"
+                                  CanUserAddRows="False"
+                                  IsReadOnly="False"
+                                  SelectionMode="Extended"
+                                  SelectionUnit="FullRow"
+                                  HeadersVisibility="Column"
+                                  RowHeight="46"
+                                  ColumnHeaderHeight="50"
+                                  FontSize="18"
+                                  Background="White"
+                                  GridLinesVisibility="All"
+                                  Margin="0">
 
-
-                <!-- Data grid -->
-                <Border Grid.Row="1"
-                        CornerRadius="14"
-                        Background="#20FFFFFF"
-                        Padding="12"
-                        Margin="0,0,0,14">
-                    <DataGrid x:Name="LockersGrid"
-                              AutoGenerateColumns="False"
-                              CanUserAddRows="False"
-                              IsReadOnly="False"
-                              SelectionMode="Extended"
-                              SelectionUnit="FullRow"
-                              HeadersVisibility="Column"
-                              RowHeight="46"
-                              ColumnHeaderHeight="50"
-                              FontSize="18"
-                              Background="White"
-                              GridLinesVisibility="All"
-                              Margin="0">
-
-                        <DataGrid.Columns>
-
-                            <DataGridTextColumn Header="LockerId"
-                                                Binding="{Binding LockerId}"
-                                                Width="90"
-                                                IsReadOnly="False"/>
-
-                            <DataGridComboBoxColumn Header="Branch"
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="LockerId"
+                                                    Binding="{Binding LockerId}"
                                                     Width="90"
-                                                    SelectedItemBinding="{Binding Branch, UpdateSourceTrigger=PropertyChanged}"
-                                                    ItemsSource="{StaticResource BranchOptions}"/>
+                                                    IsReadOnly="False"/>
 
-                            <DataGridTextColumn Header="RelayId"
-                                                Binding="{Binding RelayId, UpdateSourceTrigger=PropertyChanged}"
-                                                Width="95">
-                                <DataGridTextColumn.EditingElementStyle>
-                                    <Style TargetType="TextBox">
-                                        <EventSetter Event="GotFocus" Handler="TextBox_GotFocus"/>
-                                    </Style>
-                                </DataGridTextColumn.EditingElementStyle>
-                            </DataGridTextColumn>
+                                <DataGridComboBoxColumn Header="Branch"
+                                                        Width="90"
+                                                        SelectedItemBinding="{Binding Branch, UpdateSourceTrigger=PropertyChanged}"
+                                                        ItemsSource="{StaticResource BranchOptions}"/>
 
-                            <DataGridTextColumn Header="LockerNumber"
-                                                Binding="{Binding LockerNumber, UpdateSourceTrigger=PropertyChanged}"
-                                                Width="160">
-                                <DataGridTextColumn.EditingElementStyle>
-                                    <Style TargetType="TextBox">
-                                        <EventSetter Event="GotFocus" Handler="TextBox_GotFocus"/>
-                                    </Style>
-                                </DataGridTextColumn.EditingElementStyle>
-                            </DataGridTextColumn>
+                                <DataGridTextColumn Header="RelayId"
+                                                    Binding="{Binding RelayId, UpdateSourceTrigger=PropertyChanged}"
+                                                    Width="95">
+                                    <DataGridTextColumn.EditingElementStyle>
+                                        <Style TargetType="TextBox">
+                                            <EventSetter Event="GotFocus" Handler="TextBox_GotFocus"/>
+                                        </Style>
+                                    </DataGridTextColumn.EditingElementStyle>
+                                </DataGridTextColumn>
 
-                            <DataGridTextColumn Header="SizeCode"
-                                                Binding="{Binding SizeCode, UpdateSourceTrigger=PropertyChanged}"
-                                                Width="120">
-                                <DataGridTextColumn.EditingElementStyle>
-                                    <Style TargetType="TextBox">
-                                        <EventSetter Event="GotFocus" Handler="TextBox_GotFocus"/>
-                                    </Style>
-                                </DataGridTextColumn.EditingElementStyle>
-                            </DataGridTextColumn>
+                                <DataGridTextColumn Header="LockerNumber"
+                                                    Binding="{Binding LockerNumber, UpdateSourceTrigger=PropertyChanged}"
+                                                    Width="160">
+                                    <DataGridTextColumn.EditingElementStyle>
+                                        <Style TargetType="TextBox">
+                                            <EventSetter Event="GotFocus" Handler="TextBox_GotFocus"/>
+                                        </Style>
+                                    </DataGridTextColumn.EditingElementStyle>
+                                </DataGridTextColumn>
 
-                            <DataGridTextColumn Header="Zone"
-                                                Binding="{Binding Zone, UpdateSourceTrigger=PropertyChanged}"
-                                                Width="160">
-                                <DataGridTextColumn.EditingElementStyle>
-                                    <Style TargetType="TextBox">
-                                        <EventSetter Event="GotFocus" Handler="TextBox_GotFocus"/>
-                                    </Style>
-                                </DataGridTextColumn.EditingElementStyle>
-                            </DataGridTextColumn>
+                                <DataGridTextColumn Header="SizeCode"
+                                                    Binding="{Binding SizeCode, UpdateSourceTrigger=PropertyChanged}"
+                                                    Width="120">
+                                    <DataGridTextColumn.EditingElementStyle>
+                                        <Style TargetType="TextBox">
+                                            <EventSetter Event="GotFocus" Handler="TextBox_GotFocus"/>
+                                        </Style>
+                                    </DataGridTextColumn.EditingElementStyle>
+                                </DataGridTextColumn>
 
-                            <DataGridCheckBoxColumn Header="Enabled"
-                                                    Binding="{Binding IsEnabled, UpdateSourceTrigger=PropertyChanged}"
-                                                    Width="*" MinWidth="110"/>
+                                <DataGridTextColumn Header="Zone"
+                                                    Binding="{Binding Zone, UpdateSourceTrigger=PropertyChanged}"
+                                                    Width="160">
+                                    <DataGridTextColumn.EditingElementStyle>
+                                        <Style TargetType="TextBox">
+                                            <EventSetter Event="GotFocus" Handler="TextBox_GotFocus"/>
+                                        </Style>
+                                    </DataGridTextColumn.EditingElementStyle>
+                                </DataGridTextColumn>
 
-                        </DataGrid.Columns>
-                    </DataGrid>
-                </Border>
+                                <DataGridCheckBoxColumn Header="Enabled"
+                                                        Binding="{Binding IsEnabled, UpdateSourceTrigger=PropertyChanged}"
+                                                        Width="*" MinWidth="110"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </Border>
 
-                <!-- Status / errors -->
-                <Border Grid.Row="2"
-                        CornerRadius="14"
-                        Background="#30FFFFFF"
-                        Padding="14">
-                    <TextBlock x:Name="StatusText"
-                               FontSize="18"
-                               Foreground="White"
-                               TextWrapping="Wrap"/>
-                </Border>
+                    <!-- Status / errors -->
+                    <Border Grid.Row="2"
+                            CornerRadius="14"
+                            Background="#30FFFFFF"
+                            Padding="14">
+                        <TextBlock x:Name="StatusText"
+                                   FontSize="18"
+                                   Foreground="White"
+                                   TextWrapping="Wrap"
+                                   Text="Ready."/>
+                    </Border>
 
-            </Grid>
-        </Viewbox>
+                </Grid>
+            </Viewbox>
+        </Grid>
+
     </Grid>
 </Window>

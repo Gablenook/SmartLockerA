@@ -2,9 +2,7 @@
 Imports HldSerialLib.Serial.LockBoard
 
 Public Class HldPortScanner
-
     Private ReadOnly _probeRelays As Integer() = {1, 2, 3}
-
     Public Function ScanCandidates() As List(Of PortCandidate)
         Dim results As New List(Of PortCandidate)
 
@@ -17,7 +15,6 @@ Public Class HldPortScanner
 
         Return results.OrderByDescending(Function(c) c.Score).ToList()
     End Function
-
     Private Function ProbePortScore(portName As String) As Integer
         Dim board As HldLockBoard = Nothing
 

@@ -1,0 +1,179 @@
+﻿<Window x:Class="SmartLockerKiosk.LockerSizeSetupWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Locker Sizes"
+        WindowStartupLocation="CenterOwner"
+        WindowState="Maximized"
+        WindowStyle="None"
+        ResizeMode="NoResize"
+        Topmost="True"
+        Background="#00205B">
+
+    <Window.Resources>
+        <Style x:Key="PrimaryButton" TargetType="Button">
+            <Setter Property="FontSize" Value="22"/>
+            <Setter Property="Height" Value="60"/>
+            <Setter Property="Margin" Value="0,0,0,12"/>
+            <Setter Property="Padding" Value="18,0"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+
+        <DropShadowEffect x:Key="PanelShadow"
+                          Color="#F0F4F8"
+                          BlurRadius="40"
+                          ShadowDepth="2"
+                          Opacity=".35"/>
+    </Window.Resources>
+
+    <Grid>
+        <Viewbox Stretch="Uniform">
+            <Grid Width="800" Height="1200" Background="#00205B" Margin="20">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <!-- Header -->
+                <Border Grid.Row="0"
+                        CornerRadius="18"
+                        Background="#30FFFFFF"
+                        Padding="18"
+                        Margin="0,0,0,18"
+                        Effect="{StaticResource PanelShadow}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Text="Locker Sizes"
+                                   FontSize="40"
+                                   FontWeight="Bold"
+                                   Foreground="White"
+                                   VerticalAlignment="Center"/>
+
+                        <Button Grid.Column="1"
+                                Content="X"
+                                Width="70" Height="60"
+                                FontSize="24"
+                                FontWeight="Bold"
+                                Background="#CCFF3B30"
+                                Foreground="White"
+                                Margin="10,0,0,0"
+                                Click="Close_Click"/>
+                    </Grid>
+                </Border>
+
+                <!-- Main -->
+                <Border Grid.Row="1"
+                        CornerRadius="18"
+                        Background="#20FFFFFF"
+                        Padding="18"
+                        Effect="{StaticResource PanelShadow}">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+
+                        <!-- Toolbar -->
+                        <Grid Grid.Row="0" Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock x:Name="StatusText"
+                                       Text="Loading..."
+                                       Foreground="White"
+                                       FontSize="18"
+                                       Opacity="0.9"
+                                       VerticalAlignment="Center"/>
+
+                            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                <Button Content="Add"
+                                        Width="110"
+                                        Style="{StaticResource PrimaryButton}"
+                                        Background="#3399FF"
+                                        Foreground="White"
+                                        Margin="0,0,12,0"
+                                        Click="Add_Click"/>
+                                <Button Content="Save"
+                                        Width="110"
+                                        Style="{StaticResource PrimaryButton}"
+                                        Background="#33CC66"
+                                        Foreground="White"
+                                        Margin="0,0,12,0"
+                                        Click="Save_Click"/>
+                                <Button Content="Delete"
+                                        Width="130"
+                                        Style="{StaticResource PrimaryButton}"
+                                        Background="#CCFF3B30"
+                                        Foreground="White"
+                                        Click="Delete_Click"/>
+                            </StackPanel>
+                        </Grid>
+
+                        <!-- Grid -->
+                        <DataGrid x:Name="SizesGrid"
+                                  Grid.Row="1"
+                                  AutoGenerateColumns="False"
+                                  CanUserAddRows="False"
+                                  CanUserDeleteRows="False"
+                                  HeadersVisibility="Column"
+                                  RowHeight="54"
+                                  FontSize="18"
+                                  Background="#10FFFFFF"
+                                  Foreground="White"
+                                  GridLinesVisibility="None"
+                                  SelectionMode="Single"
+                                  SelectionUnit="FullRow">
+
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Code" Binding="{Binding SizeCode}" Width="90"/>
+                                <DataGridTextColumn Header="Name" Binding="{Binding DisplayName}" Width="160"/>
+                                <DataGridTextColumn Header="W(in)" Binding="{Binding WidthIn}" Width="90"/>
+                                <DataGridTextColumn Header="H(in)" Binding="{Binding HeightIn}" Width="90"/>
+                                <DataGridTextColumn Header="D(in)" Binding="{Binding DepthIn}" Width="90"/>
+                                <DataGridTextColumn Header="Sort" Binding="{Binding SortOrder}" Width="80"/>
+                                <DataGridCheckBoxColumn Header="Enabled" Binding="{Binding IsEnabled}" Width="90"/>
+
+                                <!-- Optional: move up/down -->
+                                <DataGridTemplateColumn Header="Move" Width="140">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                                <Button Content="▲" Width="50" Height="40" Margin="0,0,10,0"
+                                                        Click="MoveUp_Click"/>
+                                                <Button Content="▼" Width="50" Height="40"
+                                                        Click="MoveDown_Click"/>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </Grid>
+                </Border>
+
+                <!-- Footer -->
+                <Border Grid.Row="2"
+                        CornerRadius="18"
+                        Background="#30FFFFFF"
+                        Padding="18"
+                        Margin="0,18,0,0"
+                        Effect="{StaticResource PanelShadow}">
+                    <StackPanel>
+                        <TextBlock Text="Tip: SizeCode should be short (A, B, C, XL). SortOrder controls display order in size selection."
+                                   Foreground="White"
+                                   FontSize="16"
+                                   Opacity="0.9"
+                                   TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Border>
+
+            </Grid>
+        </Viewbox>
+    </Grid>
+</Window>

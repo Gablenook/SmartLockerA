@@ -22,6 +22,8 @@
                        FontSize="14"
                        VerticalAlignment="Center"/>
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                <Button x:Name="ScanPortsButton" Content="Scan Ports" Width="120" Margin="8,0,0,0"
+            Click="ScanPorts_Click"/>
                 <Button x:Name="ReloadButton" Content="Reload" Width="100" Margin="8,0,0,0"
                         Click="Reload_Click"/>
                 <Button x:Name="SaveButton" Content="Save" Width="100" Margin="8,0,0,0"

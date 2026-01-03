@@ -93,7 +93,6 @@ Public Class LockerControllerService
             _initialized = openedAny
         End SyncLock
     End Sub
-
     Public Sub UnlockLocker(lockerId As Integer)
         Try
             EnsureInitialized()
@@ -139,7 +138,7 @@ Public Class LockerControllerService
 
             SyncLock gate
                 Try
-                    Return board.GetLockStatus(relayId)
+                    Return GetLockStatus(relayId)
                 Catch ex As NullReferenceException
                     Throw New InvalidOperationException($"GetLockStatus failed (SDK null ref) for Branch {branch}, Relay {relayId}.", ex)
                 End Try

@@ -28,7 +28,6 @@ Namespace SmartLockerKiosk
                 .ReasonCode = "AdminScreenOpened"
             })
         End Sub
-
         Private Sub LoadSettingsIntoUi()
             ' Passcode length
             If AppSettings.PasscodeLength > 0 Then
@@ -45,7 +44,6 @@ Namespace SmartLockerKiosk
                 SelectComboBoxItemByContent(StyleComboBox, AppSettings.SelectedStyle)
             End If
         End Sub
-
         Private Sub SelectComboBoxItemByContent(cb As ComboBox, content As String)
             For Each obj In cb.Items
                 Dim item = TryCast(obj, ComboBoxItem)
@@ -55,7 +53,6 @@ Namespace SmartLockerKiosk
                 End If
             Next
         End Sub
-
         Private Sub LockerSetup_Click(sender As Object, e As RoutedEventArgs)
             Dim actionId = Guid.NewGuid().ToString("N")
 
@@ -72,7 +69,16 @@ Namespace SmartLockerKiosk
             Dim w As New LockerSetupWindow With {.Owner = Me, .AdminActorID = Me.AdminActorId}
             w.ShowDialog()
         End Sub
-
+        Private Sub LockerStatus_Click(sender As Object, e As RoutedEventArgs)
+            Dim w As New LockerStatusAdmin With {.Owner = Me}
+            w.ShowDialog()
+        End Sub
+        Private Sub LockerSizes_Click(sender As Object, e As RoutedEventArgs)
+            Dim w As New LockerSizeSetupWindow() With {
+        .Owner = Me
+    }
+            w.ShowDialog()
+        End Sub
         Private Sub ControllerSetup_Click(sender As Object, e As RoutedEventArgs)
             Dim actionId = Guid.NewGuid().ToString("N")
 
@@ -93,7 +99,6 @@ Namespace SmartLockerKiosk
             w.ShowDialog()
 
         End Sub
-
         Private Sub ExitApp_Click(sender As Object, e As RoutedEventArgs)
             Dim actionId = Guid.NewGuid().ToString("N")
 
@@ -109,7 +114,6 @@ Namespace SmartLockerKiosk
 
             Application.Current.Shutdown()
         End Sub
-
         Private Sub ExitButton_Click(sender As Object, e As RoutedEventArgs)
             ' Save selected values to AppSettings
             Dim actionId = Guid.NewGuid().ToString("N")
@@ -159,7 +163,6 @@ Namespace SmartLockerKiosk
                 Throw
             End Try
         End Sub
-
         Protected Overrides Sub OnClosed(e As EventArgs)
             MyBase.OnClosed(e)
 

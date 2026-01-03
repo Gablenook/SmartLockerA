@@ -190,16 +190,18 @@
                                     Style="{StaticResource PrimaryAdminButton}"
                                     Click="LockerSetup_Click"/>
 
+                            <!-- NEW: Locker Status Admin -->
+                            <Button Content="Locker Status"
+                                    Style="{StaticResource PrimaryAdminButton}"
+                                    Click="LockerStatus_Click"/>
+
                             <Button Content="Controller Setup"
                                     Style="{StaticResource PrimaryAdminButton}"
                                     Click="ControllerSetup_Click"/>
-
-                            <TextBlock Text="Controller ports are configured in Controller Setup."
-                                       FontSize="18"
-                                       Foreground="White"
-                                       Opacity="0.9"
-                                       TextWrapping="Wrap"
-                                       Margin="0,4,0,0"/>
+                    
+                            <Button Content="Locker Sizes"
+                                Style="{StaticResource PrimaryAdminButton}"
+                                Click="LockerSizes_Click"/>
                         </StackPanel>
                     </Border>
 
@@ -232,4 +234,5 @@
         </Viewbox>
     </Grid>
 </Window>
+
 

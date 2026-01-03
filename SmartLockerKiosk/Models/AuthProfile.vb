@@ -4,4 +4,7 @@
     Public Property CanPickup As Boolean
     Public Property CanDeliver As Boolean
     Public Property SessionToken As String
+    Public Property WorkOrders As List(Of WorkOrderAuthItem) =
+        New List(Of WorkOrderAuthItem)()
 End Class
+

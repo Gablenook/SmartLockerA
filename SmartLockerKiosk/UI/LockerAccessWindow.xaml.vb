@@ -1,5 +1,6 @@
 ﻿Imports System.Net.Http
 Imports System.Runtime.InteropServices
+Imports System.Text
 Imports System.Threading.Tasks
 Imports System.Windows
 Imports System.Windows.Controls
@@ -8,6 +9,8 @@ Imports System.Windows.Interop
 Imports System.Windows.Media
 Imports System.Windows.Media.Animation
 Imports Microsoft.EntityFrameworkCore
+Imports System.Net.Http.Headers
+Imports System.Text.Json
 
 Namespace SmartLockerKiosk
     Partial Public Class LockerAccessWindow
@@ -15,49 +18,6 @@ Namespace SmartLockerKiosk
         Inherits Window
         Private fadeIn As Storyboard
         ' Authorization result from cloud
-        Private Class AuthProfile
-            Public Property IsAuthenticated As Boolean
-            Public Property IsAdmin As Boolean
-            Public Property CanPickup As Boolean
-            Public Property CanDeliver As Boolean
-            Public Property SessionToken As String
-            Public Property WorkOrders As List(Of WorkOrderAuthItem) =
-    New List(Of WorkOrderAuthItem)()
-
-
-        End Class
-        Public Class WorkOrderAuthItem
-            Public Property WorkOrderNumber As String
-            Public Property TransactionType As String  ' "Pickup" / "Delivery" / etc.
-            Public Property LockerNumber As String     ' null/empty for Delivery when not assigned
-            Public Property AllowedSizeCode As String  ' optional
-        End Class
-        Private Class SizeTile
-            Public Property SizeCode As String
-            Public Property DisplayName As String
-            Public Property DimText As String        ' "10W × 6H × 14D"
-            Public Property ThumbWidth As Double     ' for rectangle
-            Public Property ThumbHeight As Double    ' for rectangle
-        End Class
-        Public Class AuthResult
-            Public Property IsAuthorized As Boolean
-            Public Property Message As String
-
-            ' What the kiosk should do next
-            Public Property Purpose As AuthPurpose
-            Public Property NextAction As String   ' e.g. "OPEN_LOCKER", "PROMPT_WORK_ORDER", "SELECT_LOCKER"
-
-            ' Common identity fields (optional)
-            Public Property UserId As String
-            Public Property DisplayName As String
-
-            ' Pickup / DayUse: if the server already knows/assigns a locker
-            Public Property LockerNumber As String    ' alphanumeric; Nothing/"" means not assigned
-
-            ' Pickup: optional but useful for logging
-            Public Property WorkOrderNumber As String
-            Public Property WorkOrders As List(Of WorkOrderAuthItem) = New List(Of WorkOrderAuthItem)()
-        End Class
         Private Enum ScreenState
             AwaitWorkflowChoice
             AwaitCredential
@@ -71,13 +31,6 @@ Namespace SmartLockerKiosk
             Delivery
             DayUse
         End Enum
-        Public Enum AuthPurpose
-            PickupAccess
-            DeliveryCourierAuth
-            DayUseStart
-            AdminAccess
-        End Enum
-
 
         Private _state As ScreenState = ScreenState.AwaitWorkflowChoice
         Private _transactionType As String = ""   ' "DELIVER" or "PICKUP" or "ADMIN"
@@ -92,12 +45,26 @@ Namespace SmartLockerKiosk
         Private _activeWorkOrder As WorkOrderAuthItem = Nothing
         Private _sizeTiles As List(Of SizeTile) = New List(Of SizeTile)()
         Private _selectedSizeCode As String = Nothing
+        Private _sessionToken As String = ""
+        Private ReadOnly _assigner As New LockerAssignmentService()
+        Private Shared ReadOnly _jsonOpts As New JsonSerializerOptions With {
+    .PropertyNameCaseInsensitive = True}
+        Private _commitFlushTimer As Threading.DispatcherTimer
+        Private _isFlushing As Boolean = False
+        Private _lockerSizes As List(Of LockerSize) = New List(Of LockerSize)()
+
+
+
+
+
 
         Public Sub New()
             InitializeComponent()
             fadeIn = CType(FindResource("FadeInPrompt"), Storyboard)
         End Sub
         Private Sub LockerAccessWindow_Loaded(sender As Object, e As RoutedEventArgs) Handles Me.Loaded
+            StartPendingCommitFlusher()
+
             Try
                 fadeIn.Begin()
             Catch
@@ -384,121 +351,233 @@ Namespace SmartLockerKiosk
         End Sub
         Private Async Sub SubmitCredential(rawCredential As String, source As String)
 
-            ' --- normalize input ---
+            ' ===== Normalize =====
             Dim credential As String = (If(rawCredential, "")).Trim()
+            If credential.Length = 0 Then Return ' don't consume debounce
 
-            ' Empty submit should NOT consume debounce window
-            If credential.Length = 0 Then Return
+            ' ===== Debounce + re-entry =====
+            Dim nowUtc As DateTime = DateTime.UtcNow
+            If (nowUtc - _lastSubmitUtc) < _submitDebounce Then Return
+            _lastSubmitUtc = nowUtc
 
-            ' --- debounce (handles keypad double-fire etc.) ---
-            Dim now = DateTime.UtcNow
-            If (now - _lastSubmitUtc) < _submitDebounce Then Return
-            _lastSubmitUtc = now
-
-            ' --- state guards ---
             If _state = ScreenState.ValidatingCredential Then Return
 
+            ' ===== Determine flow =====
             Dim isAdminFlow As Boolean = (_state = ScreenState.AwaitAdminCredential)
+
+            ' Only accept credential input in these states
             If _state <> ScreenState.AwaitCredential AndAlso Not isAdminFlow Then Return
 
-            ' For normal (non-admin) flow, we must have a selected workflow
+            ' For non-admin, must have a workflow selected
             If Not isAdminFlow AndAlso Not _selectedWorkflow.HasValue Then
                 ResetToAwaitWorkflowChoice()
                 Return
             End If
 
-            ' Determine purpose
             Dim purpose As AuthPurpose =
         If(isAdminFlow, AuthPurpose.AdminAccess, GetPurposeForWorkflow(_selectedWorkflow.Value))
 
-            ' --- transition to validating ---
+            Dim actionId As String = Guid.NewGuid().ToString("N")
+
+            ' ===== Enter busy state =====
             _state = ScreenState.ValidatingCredential
             SetUiEnabled(False)
+            ShowPrompt("Validating…")
 
-            UserPromptText.Text = "Validating…"
-            SafeFadeIn()
-
-            Dim actionId As String = Guid.NewGuid().ToString("N") ' correlation id for this auth attempt
+            Dim result As AuthResult = Nothing
 
             Try
-                Dim result As AuthResult = Await ValidateCredentialWithServerAsync(credential, purpose)
+                ' IMPORTANT: pass source so credentialType can be correct (Pin vs Badge etc.)
+                result = Await ValidateCredentialWithServerAsync(credential, purpose, source)
 
-                If result Is Nothing OrElse Not result.IsAuthorized Then
-                    ' AUDIT: denied auth attempt (no validated identity, do NOT log credential)
-                    Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
-                .EventType = Audit.AuditEventType.AuthenticationAttempt,
-                .ActorType = If(isAdminFlow, Audit.ActorType.Admin, Audit.ActorType.User),
-                .ActorId = If(isAdminFlow, "Admin:Unknown", "User:Unknown"),
-                .AffectedComponent = "AuthService",
-                .Outcome = Audit.AuditOutcome.Denied,
-                .CorrelationId = actionId,
-                .ReasonCode = If(isAdminFlow, "AdminAuthDenied", "UserAuthDenied")
-            })
 
-                    ' Stay in credential prompt for retry (admin stays admin; normal stays normal)
-                    _state = If(isAdminFlow, ScreenState.AwaitAdminCredential, ScreenState.AwaitCredential)
-                    UserPromptText.Text = If(result?.Message, "Credential not recognized")
-                    SafeFadeIn()
-                    Return
-                End If
-
-                ' Persist auth result into your current workflow context
-                _authResult = result
-                _authorizedWorkOrders = If(result.WorkOrders, New List(Of WorkOrderAuthItem)())
-                _activeWorkOrder = Nothing
-
-                ' AUDIT: successful auth attempt (use validated identity; do NOT log credential)
-                Dim actorType As Audit.ActorType = If(purpose = AuthPurpose.AdminAccess, Audit.ActorType.Admin, Audit.ActorType.User)
-                Dim actorId As String =
-            If(purpose = AuthPurpose.AdminAccess, $"Admin:{result.UserId}", $"User:{result.UserId}")
-
-                Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
-            .EventType = Audit.AuditEventType.AuthenticationAttempt,
-            .ActorType = actorType,
-            .ActorId = actorId,
-            .AffectedComponent = "AuthService",
-            .Outcome = Audit.AuditOutcome.Success,
-            .CorrelationId = actionId,
-            .ReasonCode = If(purpose = AuthPurpose.AdminAccess, "AdminAuthSucceeded", "UserAuthSucceeded")
-        })
-
-                ' ===== ADMIN SHORT-CIRCUIT =====
-                If purpose = AuthPurpose.AdminAccess Then
-                    ' ShowAdminPanelAsync should now accept AuthResult and NOT re-authenticate
-                    Await ShowAdminPanelAsync(result)
-                    ResetToAwaitWorkflowChoice()
-                    Return
-                End If
-                ' ===============================
-
-                ' Route to the correct workflow continuation
-                Await ContinueWorkflowAfterAuthAsync(_selectedWorkflow.Value, result)
-
-            Catch ex As Exception
-                ' AUDIT: auth system failure (no credential, no sensitive detail)
-                Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
-            .EventType = Audit.AuditEventType.AuthenticationAttempt,
-            .ActorType = If(isAdminFlow, Audit.ActorType.Admin, Audit.ActorType.User),
-            .ActorId = If(isAdminFlow, "Admin:Unknown", "User:Unknown"),
-            .AffectedComponent = "AuthService",
-            .Outcome = Audit.AuditOutcome.Error,
-            .CorrelationId = actionId,
-            .ReasonCode = "AuthServiceUnavailable"
-        })
-
+            Catch
+                ' Backend/network failure: audit as Error and reset UI
+                AuditAuthError(actionId, isAdminFlow, "AuthServiceUnavailable")
                 ResetToAwaitWorkflowChoice()
-                UserPromptText.Text = "System unavailable"
-                SafeFadeIn()
+                ShowPrompt("System unavailable")
+                Exit Sub
 
             Finally
-                ' Always restore UI to an interactive state; your state machine decides what is enabled next.
+                ' Always restore interactivity
                 KeypadControl.Reset()
                 SetUiEnabled(True)
                 FocusHidSink()
             End Try
 
-        End Sub
+            ' ===== Evaluate result (no Await needed below) =====
+            If result Is Nothing OrElse Not result.IsAuthorized Then
+                AuditAuthDenied(actionId, isAdminFlow, If(purpose = AuthPurpose.AdminAccess, "AdminAuthDenied", "UserAuthDenied"))
 
+                _state = If(isAdminFlow, ScreenState.AwaitAdminCredential, ScreenState.AwaitCredential)
+                ShowPrompt(If(result?.Message, "Credential not recognized"))
+                Return
+            End If
+
+            ' Persist token for subsequent backend calls
+            _sessionToken = (If(result.SessionToken, "")).Trim()
+
+            ' Persist auth context
+            _authResult = result
+            _authorizedWorkOrders = If(result.WorkOrders, New List(Of WorkOrderAuthItem)())
+            _activeWorkOrder = Nothing
+
+            ' Audit success using validated identity
+            AuditAuthSucceeded(actionId, purpose, result)
+
+            ' Admin short-circuit
+            If purpose = AuthPurpose.AdminAccess Then
+                Await ShowAdminPanelAsync(result)
+                ResetToAwaitWorkflowChoice()
+                Return
+            End If
+
+            ' Continue workflow
+            Await ContinueWorkflowAfterAuthAsync(_selectedWorkflow.Value, result)
+
+        End Sub
+        Private Async Function ValidateCredentialWithServerAsync(
+    scanValue As String,
+    purpose As AuthPurpose,
+    source As String
+) As Task(Of AuthResult)
+
+            Dim credential = (If(scanValue, "")).Trim()
+            If credential.Length = 0 Then
+                Return New AuthResult With {.IsAuthorized = False, .Purpose = purpose, .Message = "Empty credential."}
+            End If
+
+            ' === TEST MODE SHORT-CIRCUIT ===
+            If AppSettings.TestModeEnabled Then
+                Dim local = TestAuthProvider.Authorize(credential, purpose)
+
+                If local Is Nothing Then
+                    Return New AuthResult With {.IsAuthorized = False, .Purpose = purpose, .Message = "Test auth provider returned nothing."}
+                End If
+
+                If local.IsAuthorized Then
+                    _sessionToken = "TEST-TOKEN-" & Guid.NewGuid().ToString("N")
+
+                    ' Provide predictable Pickup work orders in Test mode
+                    If purpose = AuthPurpose.PickupAccess Then
+                        If local.WorkOrders Is Nothing Then local.WorkOrders = New List(Of WorkOrderAuthItem)()
+
+                        local.WorkOrders.Add(New WorkOrderAuthItem With {
+                .WorkOrderNumber = AppSettings.TestWorkOrder,
+                .TransactionType = "Pickup",
+                .LockerNumber = AppSettings.TestPickupLockerNumber,  ' add this setting, e.g. "A-001"
+                .AllowedSizeCode = ""
+            })
+                    End If
+                End If
+
+                Return local
+            End If
+
+            ' ===============================
+
+            ' --- real backend call continues here ---
+            Dim requestId = Guid.NewGuid().ToString("N")
+
+            Dim credentialType As String =
+        If(source IsNot Nothing AndAlso source.Equals("KEYPAD", StringComparison.OrdinalIgnoreCase), "Pin", "Badge")
+
+            Dim reqObj = New With {
+        .credential = credential,
+        .credentialType = credentialType,
+        .purpose = purpose.ToString(),
+        .kioskId = AppSettings.KioskID,
+        .locationId = AppSettings.LocationId,
+        .timestampUtc = DateTime.UtcNow.ToString("o"),
+        .requestId = requestId
+    }
+
+            Dim json = System.Text.Json.JsonSerializer.Serialize(reqObj)
+
+            Using msg = CreateJsonRequest(HttpMethod.Post, "/v1/auth/authorize", requestId, json)
+                Dim resp = Await _http.SendAsync(msg)
+                Dim body = Await resp.Content.ReadAsStringAsync()
+
+                If Not resp.IsSuccessStatusCode Then
+                    Return New AuthResult With {.IsAuthorized = False, .Purpose = purpose, .Message = $"Auth failed ({CInt(resp.StatusCode)})."}
+                End If
+
+                Dim dto = System.Text.Json.JsonSerializer.Deserialize(Of AuthorizeResponseDto)(
+            body, New System.Text.Json.JsonSerializerOptions With {.PropertyNameCaseInsensitive = True}
+        )
+
+                Dim isAuth As Boolean = (dto IsNot Nothing AndAlso dto.isAuthorized)
+
+                Dim result As New AuthResult With {
+    .IsAuthorized = isAuth,
+    .Purpose = purpose,
+    .UserId = dto?.userId,
+    .DisplayName = dto?.displayName,
+    .Message = If(isAuth, "OK", "Credential not recognized"),
+    .NextAction = "PROMPT_WORK_ORDER",
+    .WorkOrders = New List(Of WorkOrderAuthItem)()
+}
+
+
+                If dto.workOrders IsNot Nothing Then
+                    For Each w In dto.workOrders
+                        result.WorkOrders.Add(New WorkOrderAuthItem With {
+                    .WorkOrderNumber = w.workOrderNumber,
+                    .TransactionType = w.transactionType,
+                    .LockerNumber = w.lockerNumber,
+                    .AllowedSizeCode = w.allowedSizeCode
+                })
+                    Next
+                End If
+
+                _sessionToken = dto.sessionToken
+                Return result
+            End Using
+        End Function
+
+        Private Function MapPurposeForBackend(p As AuthPurpose) As String
+            Select Case p
+                Case AuthPurpose.PickupAccess
+                    Return "Pickup"
+                Case AuthPurpose.DeliveryCourierAuth
+                    Return "Deliver"
+                Case AuthPurpose.AdminAccess
+                    Return "Admin"
+                Case AuthPurpose.DayUseStart
+                    Return "DayUse"
+                Case Else
+                    Return "Pickup"
+            End Select
+        End Function
+        Private Function MapCredentialTypeForBackend(source As String, credential As String) As String
+            Dim s = (If(source, "")).Trim().ToUpperInvariant()
+
+            ' You can tune this later (Barcode/QR detection etc.)
+            If s = "KEYPAD" Then Return "Pin"
+
+            ' Common default for HID badge scanners
+            Return "Badge"
+        End Function
+        Private Function ExtractBackendErrorMessage(body As String, resp As HttpResponseMessage) As String
+            ' If backend returns: { "errorCode": "...", "message": "...", "requestId": "..." }
+            Try
+                Dim err = System.Text.Json.JsonSerializer.Deserialize(Of BackendErrorDto)(
+            body,
+            New System.Text.Json.JsonSerializerOptions With {.PropertyNameCaseInsensitive = True}
+        )
+
+                If err IsNot Nothing Then
+                    Dim msg = (If(err.message, "")).Trim()
+                    If msg.Length > 0 Then
+                        Return msg & $" (HTTP {CInt(resp.StatusCode)})"
+                    End If
+                End If
+            Catch
+                ' ignore parse errors
+            End Try
+
+            Return $"Auth failed (HTTP {CInt(resp.StatusCode)})."
+        End Function
         Private Function GetPurposeForWorkflow(mode As WorkflowMode) As AuthPurpose
             Select Case mode
                 Case WorkflowMode.Pickup
@@ -542,7 +621,6 @@ Namespace SmartLockerKiosk
         Private Sub SafeFadeIn()
             Try : fadeIn.Begin() : Catch : End Try
         End Sub
-
         Private Sub PickupButton_Click(sender As Object, e As RoutedEventArgs) Handles PickupButton.Click
             If _state <> ScreenState.AwaitWorkflowChoice Then Return
 
@@ -560,7 +638,6 @@ Namespace SmartLockerKiosk
 
             PromptForCredential()
         End Sub
-
         Private Sub DeliverButton_Click(sender As Object, e As RoutedEventArgs) Handles DeliverButton.Click
             If _state <> ScreenState.AwaitWorkflowChoice Then Return
             _selectedWorkflow = WorkflowMode.Delivery
@@ -572,7 +649,7 @@ Namespace SmartLockerKiosk
         .AffectedComponent = "LockerAccessWindow",
         .Outcome = Audit.AuditOutcome.Success,
         .CorrelationId = Guid.NewGuid().ToString("N"),
-        .ReasonCode = "WorkflowSelected:Pickup"
+        .ReasonCode = "WorkflowSelected:Delivery"
     })
             PromptForCredential()
         End Sub
@@ -582,7 +659,6 @@ Namespace SmartLockerKiosk
         '     _selectedWorkflow = WorkflowMode.DayUse
         '     PromptForCredential()
         ' End Sub
-
         Private Sub AdminLogo_MouseLeftButtonUp(sender As Object, e As MouseButtonEventArgs)
             If _state = ScreenState.ValidatingCredential Then Return
 
@@ -643,27 +719,519 @@ Namespace SmartLockerKiosk
         End Function
 
 
-
-        Private Sub ShowLockerSizeSelection()
-            SizeSelectionPanel.Visibility = Visibility.Visible
-            ' Populate tiles here if you haven’t already
-            _state = ScreenState.AwaitLockerSize
-            UserPromptText.Text = "Select compartment size."
-            SafeFadeIn()
-        End Sub
         Private Sub HideLockerSizeSelection()
             SizeSelectionPanel.Visibility = Visibility.Collapsed
         End Sub
-        Private Sub SizeTile_Click(sender As Object, e As RoutedEventArgs)
-            Dim btn = TryCast(sender, Button)
-            If btn Is Nothing Then Return
+        Private Async Sub SelectSizeAndAssignLocker(sizeCode As String)
 
-            Dim code = TryCast(btn.Tag, String)
-            If String.IsNullOrWhiteSpace(code) Then Return
+            Dim actionId As String = Guid.NewGuid().ToString("N")
+            Dim code As String = (If(sizeCode, "")).Trim().ToUpperInvariant()
+            If code.Length = 0 Then Return
 
-            ' Kick off assignment/open
-            SelectSizeAndAssignLocker(code)
+            ' Debounce + re-entry guard
+            Dim now = DateTime.UtcNow
+            If (now - _lastSubmitUtc) < _submitDebounce Then Return
+            _lastSubmitUtc = now
+            If _state = ScreenState.ValidatingCredential Then Return
+
+            ' Guards
+            If Not _selectedWorkflow.HasValue OrElse _selectedWorkflow.Value <> WorkflowMode.Delivery Then
+                ShowPrompt("Size selection is only used for Delivery.")
+                Return
+            End If
+
+            If _activeWorkOrder Is Nothing OrElse String.IsNullOrWhiteSpace(_activeWorkOrder.WorkOrderNumber) Then
+                ShowPrompt("Scan a Work Order first.")
+                _state = ScreenState.AwaitWorkOrder
+                Return
+            End If
+
+            Dim wo As String = _activeWorkOrder.WorkOrderNumber
+
+            ' Enter busy state
+            _state = ScreenState.ValidatingCredential
+            SetUiEnabled(False)
+            HideLockerSizeSelection()
+
+            Dim returnToSizeSelection As Boolean = False
+            Dim delayThenReset As Boolean = False
+
+            Try
+                ' 1) Select locker locally (no backend dependency)
+                ShowPrompt($"Finding an available {code} compartment…")
+
+                Dim assignedLockerNumber As String = _assigner.SelectNextAvailableLockerNumber(code)
+
+                If String.IsNullOrWhiteSpace(assignedLockerNumber) Then
+                    AuditNoAvailability(actionId, wo, code)
+                    ShowPrompt($"No {code} compartments are available. Select a different size.")
+                    returnToSizeSelection = True
+
+                Else
+                    AuditAssignSucceeded(actionId, wo, code, assignedLockerNumber)
+
+                    ' 2) Open locally
+                    ShowPrompt($"Opening locker {assignedLockerNumber}…")
+
+                    If Not TryOpenLockerWithAudit(actionId, wo, assignedLockerNumber) Then
+                        ShowPrompt($"Unable to open locker {assignedLockerNumber}. Please contact attendant.")
+                        delayThenReset = True
+
+                    Else
+                        ' 3) Best-effort backend commit/log
+                        ShowPrompt($"Locker {assignedLockerNumber} opened. Logging delivery…")
+
+                        Dim committedOk As Boolean = Await CommitDeliveryToServerSafeAsync(
+                    workOrderNumber:=wo,
+                    sizeCode:=code,
+                    lockerNumber:=assignedLockerNumber,
+                    courierAuth:=_courierAuth,
+                    correlationId:=actionId
+                )
+
+                        If committedOk Then
+                            ShowPrompt($"Delivery started. Locker {assignedLockerNumber} opened.")
+                        Else
+                            ShowPrompt($"Locker {assignedLockerNumber} opened. Delivery will sync when online.")
+                        End If
+
+                        delayThenReset = True
+                    End If
+                End If
+
+            Catch
+                ShowPrompt("System unavailable")
+                delayThenReset = True
+
+            Finally
+                KeypadControl.Reset()
+                SetUiEnabled(True)
+                FocusHidSink()
+            End Try
+
+            ' VB rule: await after Try/Catch/Finally
+            If returnToSizeSelection Then
+                _state = ScreenState.AwaitLockerSize
+                ShowLockerSizeSelection()
+                Return
+            End If
+
+            If delayThenReset Then
+                Await Task.Delay(1500)
+                ResetToAwaitWorkflowChoice()
+                Return
+            End If
+
         End Sub
+        Private Sub ShowPrompt(text As String)
+            UserPromptText.Text = text
+            SafeFadeIn()
+        End Sub
+        Private Function TryOpenLockerWithAudit(actionId As String, workOrderNumber As String, lockerNumber As String) As Boolean
+            Try
+                Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
+            .EventType = Audit.AuditEventType.LockerOpenAttempt,
+            .ActorType = Audit.ActorType.User,
+            .ActorId = If(_courierAuth IsNot Nothing, $"User:{_courierAuth.UserId}", "User:Unknown"),
+            .AffectedComponent = "LockerControllerService",
+            .Outcome = Audit.AuditOutcome.Success,
+            .CorrelationId = actionId,
+            .ReasonCode = $"DeliveryOpenRequested;WO={workOrderNumber};Locker={lockerNumber}"
+        })
+
+                _lockerController.UnlockByLockerNumber(lockerNumber)
+                Return True
+
+            Catch
+                Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
+            .EventType = Audit.AuditEventType.LockerOpenAttempt,
+            .ActorType = Audit.ActorType.User,
+            .ActorId = If(_courierAuth IsNot Nothing, $"User:{_courierAuth.UserId}", "User:Unknown"),
+            .AffectedComponent = "LockerControllerService",
+            .Outcome = Audit.AuditOutcome.Error,
+            .CorrelationId = actionId,
+            .ReasonCode = $"DeliveryOpenFailed;WO={workOrderNumber};Locker={lockerNumber}"
+        })
+                Return False
+            End Try
+        End Function
+        Private Sub AuditNoAvailability(actionId As String, workOrderNumber As String, sizeCode As String)
+            Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
+        .EventType = Audit.AuditEventType.PolicyConfigurationChange, ' consider adding LockerAssignmentAttempt
+        .ActorType = Audit.ActorType.User,
+        .ActorId = If(_courierAuth IsNot Nothing, $"User:{_courierAuth.UserId}", "User:Unknown"),
+        .AffectedComponent = "SelectDeliveryLockerLocally",
+        .Outcome = Audit.AuditOutcome.Denied,
+        .CorrelationId = actionId,
+        .ReasonCode = $"DeliveryAssignDenied:NoAvailability;WO={workOrderNumber};Size={sizeCode}"
+    })
+        End Sub
+        Private Sub AuditAssignSucceeded(actionId As String, workOrderNumber As String, sizeCode As String, lockerNumber As String)
+            Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
+        .EventType = Audit.AuditEventType.PolicyConfigurationChange, ' consider adding LockerAssignmentAttempt
+        .ActorType = Audit.ActorType.User,
+        .ActorId = If(_courierAuth IsNot Nothing, $"User:{_courierAuth.UserId}", "User:Unknown"),
+        .AffectedComponent = "SelectDeliveryLockerLocally",
+        .Outcome = Audit.AuditOutcome.Success,
+        .CorrelationId = actionId,
+        .ReasonCode = $"DeliveryAssignSucceeded;WO={workOrderNumber};Size={sizeCode};Locker={lockerNumber}"
+    })
+        End Sub
+        Private Async Function CommitDeliveryToServerSafeAsync(
+    workOrderNumber As String,
+    sizeCode As String,
+    lockerNumber As String,
+    courierAuth As AuthResult,
+    correlationId As String
+) As Task(Of Boolean)
+
+            Try
+                Await PostDeliveryTransactionToServerAsync(
+            workOrderNumber,
+            sizeCode,
+            lockerNumber,
+            courierAuth,
+            requestId:=correlationId
+        )
+                Return True
+
+            Catch
+                ' 6.3 will enqueue here (you already have that pattern)
+                Return False
+            End Try
+
+        End Function
+        Private Async Function PostDeliveryTransactionToServerAsync(
+    workOrderNumber As String,
+    sizeCode As String,
+    lockerNumber As String,
+    courierAuth As AuthResult,
+    Optional requestId As String = Nothing
+) As Task
+
+            RequireBackendConfig()
+
+            Dim wo = (If(workOrderNumber, "")).Trim()
+            Dim sc = (If(sizeCode, "")).Trim().ToUpperInvariant()
+            Dim ln = (If(lockerNumber, "")).Trim()
+
+            If wo.Length = 0 Then Throw New ArgumentException("workOrderNumber is required.", NameOf(workOrderNumber))
+            If sc.Length = 0 Then Throw New ArgumentException("sizeCode is required.", NameOf(sizeCode))
+            If ln.Length = 0 Then Throw New ArgumentException("lockerNumber is required.", NameOf(lockerNumber))
+
+            Dim rid As String = If(String.IsNullOrWhiteSpace(requestId), Guid.NewGuid().ToString("N"), requestId)
+
+            Dim dto As New DeliveryCommitRequestDto With {
+        .requestId = rid,
+        .timestampUtc = DateTime.UtcNow.ToString("o"),
+        .kioskId = AppSettings.KioskID,
+        .locationId = AppSettings.LocationId,
+        .workOrderNumber = wo,
+        .lockerNumber = ln,
+        .sizeCode = sc,
+        .courierUserId = If(courierAuth IsNot Nothing, courierAuth.UserId, Nothing)
+    }
+
+            Dim jsonBody As String = System.Text.Json.JsonSerializer.Serialize(dto)
+
+            ' Endpoint choice: you said you already asked the backend dev for auth rule.
+            ' For now, assume Bearer token is used when available.
+            Dim msg As HttpRequestMessage =
+        CreateJsonRequest(HttpMethod.Post,
+                          "/v1/workorders/commit-assignment",
+                          rid,
+                          jsonBody,
+                          bearerToken:=_sessionToken)
+
+            Dim resp As HttpResponseMessage = Nothing
+            Dim body As String = ""
+
+            Try
+                resp = Await _http.SendAsync(msg)
+                body = Await resp.Content.ReadAsStringAsync()
+
+                If resp.IsSuccessStatusCode Then
+                    ' Optional: parse response if provided
+                    ' Dim result = JsonSerializer.Deserialize(Of DeliveryCommitResponseDto)(body, _jsonOpts)
+                    Return
+                End If
+
+                ' Handle common failure modes explicitly for debugging
+                If resp.StatusCode = Net.HttpStatusCode.Unauthorized OrElse resp.StatusCode = Net.HttpStatusCode.Forbidden Then
+                    Throw New InvalidOperationException($"Commit unauthorized ({CInt(resp.StatusCode)}). Check sessionToken / device auth.")
+                End If
+
+                If resp.StatusCode = Net.HttpStatusCode.Conflict Then
+                    ' Idempotency or already committed – treat as success for kiosk purposes
+                    Return
+                End If
+
+                Throw New InvalidOperationException($"Commit failed ({CInt(resp.StatusCode)}): {Truncate(body, 300)}")
+
+            Finally
+                If resp IsNot Nothing Then resp.Dispose()
+                msg.Dispose()
+            End Try
+        End Function
+        Private Sub CloseButton_Click(sender As Object, e As RoutedEventArgs)
+            Me.Close()
+        End Sub
+
+        Private Function CurrentActorId(actorType As Audit.ActorType) As String
+            If _authResult IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(_authResult.UserId) Then
+                Select Case actorType
+                    Case Audit.ActorType.Admin
+                        Return $"Admin:{_authResult.UserId}"
+                    Case Else
+                        Return $"User:{_authResult.UserId}"
+                End Select
+            End If
+            Return If(actorType = Audit.ActorType.Admin, "Admin:Unknown", "User:Unknown")
+        End Function
+        Private Sub AuditAuthDenied(actionId As String, isAdminFlow As Boolean, reasonCode As String)
+            Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
+                .EventType = Audit.AuditEventType.AuthenticationAttempt,
+                .ActorType = If(isAdminFlow, Audit.ActorType.Admin, Audit.ActorType.User),
+                .ActorId = If(isAdminFlow, "Admin:Unknown", "User:Unknown"),
+                .AffectedComponent = "AuthService",
+                .Outcome = Audit.AuditOutcome.Denied,
+                .CorrelationId = actionId,
+                .ReasonCode = reasonCode
+            })
+        End Sub
+        Private Sub AuditAuthError(actionId As String, isAdminFlow As Boolean, reasonCode As String)
+            Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
+                .EventType = Audit.AuditEventType.AuthenticationAttempt,
+                .ActorType = If(isAdminFlow, Audit.ActorType.Admin, Audit.ActorType.User),
+                .ActorId = If(isAdminFlow, "Admin:Unknown", "User:Unknown"),
+                .AffectedComponent = "AuthService",
+                .Outcome = Audit.AuditOutcome.Error,
+                .CorrelationId = actionId,
+                .ReasonCode = reasonCode
+            })
+        End Sub
+        Private Sub AuditAuthSucceeded(actionId As String, purpose As AuthPurpose, result As AuthResult)
+            Dim actorType As Audit.ActorType =
+                If(purpose = AuthPurpose.AdminAccess, Audit.ActorType.Admin, Audit.ActorType.User)
+
+            Dim actorId As String =
+                If(purpose = AuthPurpose.AdminAccess, $"Admin:{result.UserId}", $"User:{result.UserId}")
+
+            Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
+                .EventType = Audit.AuditEventType.AuthenticationAttempt,
+                .ActorType = actorType,
+                .ActorId = actorId,
+                .AffectedComponent = "AuthService",
+                .Outcome = Audit.AuditOutcome.Success,
+                .CorrelationId = actionId,
+                .ReasonCode = If(purpose = AuthPurpose.AdminAccess, "AdminAuthSucceeded", "UserAuthSucceeded")
+            })
+        End Sub
+        Private Sub RequireBackendConfig()
+            If String.IsNullOrWhiteSpace(AppSettings.BaseApiUrl) Then Throw New InvalidOperationException("BaseApiUrl is not configured.")
+            If String.IsNullOrWhiteSpace(AppSettings.KioskID) Then Throw New InvalidOperationException("KioskID is not configured.")
+            If String.IsNullOrWhiteSpace(AppSettings.LocationId) Then Throw New InvalidOperationException("LocationId is not configured.")
+            If String.IsNullOrWhiteSpace(AppSettings.DeviceApiKey) Then Throw New InvalidOperationException("DeviceApiKey is not configured.")
+        End Sub
+        Private Function NewRequestId() As String
+            Return Guid.NewGuid().ToString("D")
+        End Function
+        Private Function UtcNowIso() As String
+            Return DateTime.UtcNow.ToString("o")
+        End Function
+        Private Function CreateJsonRequest(method As HttpMethod, relativePath As String, requestId As String, jsonBody As String, Optional bearerToken As String = Nothing) As HttpRequestMessage
+            RequireBackendConfig()
+
+            Dim baseUrl = AppSettings.BaseApiUrl.TrimEnd("/"c)
+            Dim url = baseUrl & relativePath
+
+            Dim msg As New HttpRequestMessage(method, url)
+
+            ' Correlation / device identity
+            msg.Headers.Add("X-Request-Id", requestId)
+            msg.Headers.Add("X-Kiosk-Id", AppSettings.KioskID)
+
+            ' Device trust layer (pilot)
+            msg.Headers.Add("X-Api-Key", AppSettings.DeviceApiKey)
+
+            ' Session auth layer (after authorize)
+            If Not String.IsNullOrWhiteSpace(bearerToken) Then
+                msg.Headers.Authorization = New System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearerToken)
+            End If
+
+            msg.Content = New StringContent(jsonBody, Encoding.UTF8, "application/json")
+            Return msg
+        End Function
+        Private Async Function PingBackendAsync() As Task(Of String)
+            Dim requestId = NewRequestId()
+            RequireBackendConfig()
+
+            Dim url = AppSettings.BaseApiUrl.TrimEnd("/"c) & "/health"
+            Using msg As New HttpRequestMessage(HttpMethod.Get, url)
+                msg.Headers.Add("X-Request-Id", requestId)
+                msg.Headers.Add("X-Kiosk-Id", AppSettings.KioskID)
+                msg.Headers.Add("X-Api-Key", AppSettings.DeviceApiKey)
+
+                Using resp = Await _http.SendAsync(msg)
+                    Dim body = Await resp.Content.ReadAsStringAsync()
+                    Return $"Health {(CInt(resp.StatusCode))} RequestId={requestId} Body={body}"
+                End Using
+            End Using
+        End Function
+        Private Sub StartPendingCommitFlusher()
+            _commitFlushTimer = New Threading.DispatcherTimer()
+            _commitFlushTimer.Interval = TimeSpan.FromSeconds(20)
+            AddHandler _commitFlushTimer.Tick, Async Sub() Await FlushPendingCommitsAsync()
+            _commitFlushTimer.Start()
+        End Sub
+        Private Async Function FlushPendingCommitsAsync() As Task
+            If _isFlushing Then Return
+            _isFlushing = True
+
+            Try
+                If String.IsNullOrWhiteSpace(AppSettings.BaseApiUrl) OrElse
+           String.IsNullOrWhiteSpace(AppSettings.KioskID) OrElse
+           String.IsNullOrWhiteSpace(AppSettings.DeviceApiKey) Then
+                    Return
+                End If
+
+                ' If we don't have a session token, we can’t submit user-scoped commits.
+                ' Options:
+                '   A) require a service token for kiosk to commit (recommended long-term)
+                '   B) only flush when a user session exists (pilot acceptable)
+                If String.IsNullOrWhiteSpace(_sessionToken) Then Return
+
+                Dim store As New PendingCommitStore()
+                Dim items = store.LoadAll()
+
+                If items.Count = 0 Then Return
+
+                For Each item In items.ToList()
+                    If item.NextAttemptUtc > DateTime.UtcNow Then Continue For
+
+                    Try
+                        ' Use the same backend commit method you already have
+                        Await PostDeliveryTransactionToServerAsync(
+                    item.WorkOrderNumber,
+                    item.SizeCode,
+                    item.LockerNumber,
+                    New AuthResult With {.UserId = item.SessionUserId}
+                )
+
+                        store.RemoveByCommitId(item.CommitId)
+
+                        Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
+                    .EventType = Audit.AuditEventType.PolicyConfigurationChange,
+                    .ActorType = Audit.ActorType.System,
+                    .ActorId = "System:SmartLockerKiosk",
+                    .AffectedComponent = "DeliveryCommitFlusher",
+                    .Outcome = Audit.AuditOutcome.Success,
+                    .CorrelationId = item.RequestId,
+                    .ReasonCode = $"DeliveryCommitFlushed;WO={item.WorkOrderNumber};Locker={item.LockerNumber}"
+                })
+
+                    Catch ex As Exception
+                        item.AttemptCount += 1
+                        item.LastError = ex.Message
+
+                        ' Backoff: 15s, 30s, 60s, 2m, 5m, 10m (cap)
+                        Dim delay As TimeSpan =
+                    If(item.AttemptCount <= 1, TimeSpan.FromSeconds(15),
+                    If(item.AttemptCount = 2, TimeSpan.FromSeconds(30),
+                    If(item.AttemptCount = 3, TimeSpan.FromMinutes(1),
+                    If(item.AttemptCount = 4, TimeSpan.FromMinutes(2),
+                    If(item.AttemptCount = 5, TimeSpan.FromMinutes(5),
+                       TimeSpan.FromMinutes(10))))))
+
+                        item.NextAttemptUtc = DateTime.UtcNow.Add(delay)
+                        store.Update(item)
+                    End Try
+                Next
+
+            Finally
+                _isFlushing = False
+            End Try
+        End Function
+        Private Function Truncate(s As String, maxLen As Integer) As String
+            Dim t = If(s, "")
+            If t.Length <= maxLen Then Return t
+            Return t.Substring(0, maxLen)
+        End Function
+
+        '********** Locker Size Select During Delivery
+        Private Function LoadLockerSizesFromDb() As List(Of LockerSize)
+            Using db = DatabaseBootstrapper.BuildDbContext()
+
+                ' Assumes your DbSet is db.LockerSizes
+                ' If it’s named differently, adjust here.
+                Return db.LockerSizes.AsNoTracking().
+            Where(Function(s) s.IsEnabled).
+            OrderBy(Function(s) s.SortOrder).
+            ThenBy(Function(s) s.SizeCode).
+            ToList()
+
+            End Using
+        End Function
+        Private Sub EnsureSizeTilesLoaded()
+            If _lockerSizes IsNot Nothing AndAlso _lockerSizes.Count > 0 AndAlso
+       _sizeTiles IsNot Nothing AndAlso _sizeTiles.Count > 0 Then
+                Return
+            End If
+
+            _lockerSizes = LoadLockerSizesFromDb()
+
+            _sizeTiles = New List(Of SizeTile)()
+
+            For Each s In _lockerSizes
+                _sizeTiles.Add(BuildSizeTile(
+            sizeCode:=s.SizeCode,
+            displayName:=If(String.IsNullOrWhiteSpace(s.DisplayName), s.SizeCode, s.DisplayName),
+            widthIn:=s.WidthIn,
+            heightIn:=s.HeightIn,
+            depthIn:=s.DepthIn
+        ))
+            Next
+        End Sub
+        Private Sub BindSizeTilesToUi()
+            ' Important: bind to a collection the ItemsControl can enumerate.
+            ' A List is fine; ObservableCollection is better if you plan to update dynamically.
+            SizeTilesItems.ItemsSource = _sizeTiles
+        End Sub
+        Private Async Function TryReserveLockerAsync(workOrderNumber As String, requestedLockerNumber As String) As Task(Of Boolean)
+
+            If String.IsNullOrWhiteSpace(_sessionToken) Then
+                Return False ' not authorized / session expired
+            End If
+
+            Dim requestId = NewRequestId()
+
+            Dim reqObj = New With {
+        .workOrderNumber = workOrderNumber,
+        .kioskId = AppSettings.KioskID,
+        .locationId = AppSettings.LocationId,
+        .requestedLockerNumber = requestedLockerNumber,
+        .timestampUtc = DateTime.UtcNow.ToString("o"),
+        .requestId = requestId
+    }
+
+            Dim json = JsonSerializer.Serialize(reqObj)
+
+            Using msg = CreateJsonRequest(HttpMethod.Post, "/v1/workorders/assign-locker", requestId, json, bearerToken:=_sessionToken)
+                Using resp = Await _http.SendAsync(msg)
+
+                    If resp.StatusCode = Net.HttpStatusCode.Conflict Then
+                        Return False
+                    End If
+
+                    If Not resp.IsSuccessStatusCode Then
+                        Return False
+                    End If
+
+                    Return True
+                End Using
+            End Using
+
+        End Function
         Private Function BuildSizeTile(sizeCode As String, displayName As String, widthIn As Decimal, heightIn As Decimal, depthIn As Decimal) As SizeTile
             ' Create a front-face thumbnail using width vs height.
             ' Clamp aspect ratio so it never becomes unusable.
@@ -706,313 +1274,33 @@ Namespace SmartLockerKiosk
         .ThumbHeight = thumbH
     }
         End Function
-        Private Async Sub SelectSizeAndAssignLocker(sizeCode As String)
-            Dim actionId As String = Guid.NewGuid().ToString("N")
-            Dim code = (If(sizeCode, "")).Trim().ToUpperInvariant()
-            If code.Length = 0 Then Return
+        Private Sub SizeTile_Click(sender As Object, e As RoutedEventArgs)
+            Dim btn = TryCast(sender, Button)
+            If btn Is Nothing Then Return
 
-            ' Guards
-            If Not _selectedWorkflow.HasValue OrElse _selectedWorkflow.Value <> WorkflowMode.Delivery Then
-                UserPromptText.Text = "Size selection is only used for Delivery."
-                SafeFadeIn()
-                Return
-            End If
+            Dim code = TryCast(btn.Tag, String)
+            If String.IsNullOrWhiteSpace(code) Then Return
 
-            If _activeWorkOrder Is Nothing OrElse String.IsNullOrWhiteSpace(_activeWorkOrder.WorkOrderNumber) Then
-                UserPromptText.Text = "Scan a Work Order first."
-                SafeFadeIn()
-                _state = ScreenState.AwaitWorkOrder
-                Return
-            End If
-
-            ' Debounce double-clicks
-            Dim now = DateTime.UtcNow
-            If (now - _lastSubmitUtc) < _submitDebounce Then Return
-            _lastSubmitUtc = now
-
-            If _state = ScreenState.ValidatingCredential Then Return
-
-            _state = ScreenState.ValidatingCredential
-            SetUiEnabled(False)
-
-            Dim shouldDelayThenReset As Boolean = False
-            Dim shouldReturnToSizeSelection As Boolean = False
-
-            Try
-                HideLockerSizeSelection()
-
-                UserPromptText.Text = $"Finding an available {code} compartment…"
-                SafeFadeIn()
-
-                ' 1) Ask cloud for an available locker
-                Dim assignedLockerNumber As String =
-            Await AssignDeliveryLockerWithServerAsync(_activeWorkOrder.WorkOrderNumber, code, _courierAuth)
-
-                If String.IsNullOrWhiteSpace(assignedLockerNumber) Then
-                    Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
-    .EventType = Audit.AuditEventType.PolicyConfigurationChange, ' or LockerAssignmentAttempt
-    .ActorType = Audit.ActorType.User,
-    .ActorId = If(_courierAuth IsNot Nothing, $"User:{_courierAuth.UserId}", "User:Unknown"),
-    .AffectedComponent = "AssignDeliveryLockerWithServerAsync",
-    .Outcome = Audit.AuditOutcome.Denied,
-    .CorrelationId = actionId,
-    .ReasonCode = $"DeliveryAssignDenied:NoAvailability;WO={_activeWorkOrder.WorkOrderNumber};Size={code}"
-})
-
-                    UserPromptText.Text = $"No {code} compartments are available. Select a different size."
-                    SafeFadeIn()
-
-                    shouldReturnToSizeSelection = True
-                    Return
-                End If
-
-                ' 2) Open locker (no await here)
-                Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
-    .EventType = Audit.AuditEventType.PolicyConfigurationChange, ' or LockerAssignmentAttempt
-    .ActorType = Audit.ActorType.User,
-    .ActorId = If(_courierAuth IsNot Nothing, $"User:{_courierAuth.UserId}", "User:Unknown"),
-    .AffectedComponent = "AssignDeliveryLockerWithServerAsync",
-    .Outcome = Audit.AuditOutcome.Success,
-    .CorrelationId = actionId,
-    .ReasonCode = $"DeliveryAssignSucceeded;WO={_activeWorkOrder.WorkOrderNumber};Size={code};Locker={assignedLockerNumber}"
-})
-
-                UserPromptText.Text = $"Opening locker {assignedLockerNumber}…"
-                SafeFadeIn()
-
-                Try
-                    Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
-    .EventType = Audit.AuditEventType.LockerOpenAttempt,
-    .ActorType = Audit.ActorType.User,
-    .ActorId = If(_courierAuth IsNot Nothing, $"User:{_courierAuth.UserId}", "User:Unknown"),
-    .AffectedComponent = "LockerControllerService",
-    .Outcome = Audit.AuditOutcome.Success,
-    .CorrelationId = actionId,
-    .ReasonCode = $"DeliveryOpenRequested;WO={_activeWorkOrder.WorkOrderNumber};Locker={assignedLockerNumber}"
-})
-
-                    _lockerController.UnlockByLockerNumber(assignedLockerNumber)
-                Catch
-                    Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
-    .EventType = Audit.AuditEventType.LockerOpenAttempt,
-    .ActorType = Audit.ActorType.User,
-    .ActorId = If(_courierAuth IsNot Nothing, $"User:{_courierAuth.UserId}", "User:Unknown"),
-    .AffectedComponent = "LockerControllerService",
-    .Outcome = Audit.AuditOutcome.Error,
-    .CorrelationId = actionId,
-    .ReasonCode = $"DeliveryOpenFailed;WO={_activeWorkOrder.WorkOrderNumber};Locker={assignedLockerNumber}"
-})
-
-                    UserPromptText.Text = $"Unable to open locker {assignedLockerNumber}"
-                    SafeFadeIn()
-
-                    shouldDelayThenReset = True
-                    Return
-                End Try
-
-                ' 3) Post transaction to cloud
-                UserPromptText.Text = $"Locker {assignedLockerNumber} opened. Logging delivery…"
-                SafeFadeIn()
-
-                Await PostDeliveryTransactionToServerAsync(
-            workOrderNumber:=_activeWorkOrder.WorkOrderNumber,
-            sizeCode:=code,
-            lockerNumber:=assignedLockerNumber,
-            courierAuth:=_courierAuth
-        )
-
-                UserPromptText.Text = $"Delivery started. Locker {assignedLockerNumber} opened."
-                SafeFadeIn()
-
-                shouldDelayThenReset = True
-
-            Catch ex As Exception
-                ' No awaits here
-                UserPromptText.Text = "System unavailable"
-                SafeFadeIn()
-                shouldDelayThenReset = True
-
-            Finally
-                ' No awaits here
-                KeypadControl.Reset()
-                SetUiEnabled(True)
-                FocusHidSink()
-            End Try
-
-            ' ===== VB rule: awaits must be AFTER Try/Catch/Finally =====
-            If shouldReturnToSizeSelection Then
-                _state = ScreenState.AwaitLockerSize
-                ShowLockerSizeSelection()
-                Return
-            End If
-
-            If shouldDelayThenReset Then
-                Await Task.Delay(1500)
-                ResetToAwaitWorkflowChoice()
-                Return
-            End If
+            ' Kick off assignment/open
+            SelectSizeAndAssignLocker(code)
         End Sub
-        Private Async Function AssignDeliveryLockerWithServerAsync(
-    workOrderNumber As String,
-    sizeCode As String,
-    courierAuth As AuthResult
-) As Task(Of String)
-
-            Await Task.Delay(150) ' simulate latency
-
-            ' TODO: replace with real call
-            ' For now: return a deterministic locker based on size
-            Select Case (If(sizeCode, "")).Trim().ToUpperInvariant()
-                Case "A" : Return "A-001"
-                Case "B" : Return "A-002"
-                Case "C" : Return "A-003"
-                Case "D" : Return "A-004"
-                Case Else : Return ""
-            End Select
+        Private Async Function GetAvailableLockersForSizeAsync(sizeCode As String) As Task(Of List(Of String))
+            ' If backend supports it, call:
+            ' GET /v1/lockers/availability?locationId=...&sizeCode=...
+            ' Otherwise return a local list (not recommended long-term)
+            Return New List(Of String) From {$"A-001", $"A-002", $"A-003", $"A-004"}
         End Function
-        Private Async Function PostDeliveryTransactionToServerAsync(
-    workOrderNumber As String,
-    sizeCode As String,
-    lockerNumber As String,
-    courierAuth As AuthResult
-) As Task
+        Private Sub ShowLockerSizeSelection()
+            EnsureSizeTilesLoaded()
+            BindSizeTilesToUi()
 
+            _selectedSizeCode = Nothing
 
-            Await Task.Delay(100) ' simulate latency
+            SizeSelectionPanel.Visibility = Visibility.Visible
+            _state = ScreenState.AwaitLockerSize
 
-            ' TODO: replace with real call
-            ' You’ll likely post:
-            ' - workOrderNumber
-            ' - lockerNumber
-            ' - sizeCode
-            ' - kiosk id / location
-            ' - courier identity (courierAuth.UserId / SessionToken)
-            ' - timestamp, etc.
-        End Function
-        Private Sub CloseButton_Click(sender As Object, e As RoutedEventArgs)
-            Me.Close()
+            ShowPrompt("Select compartment size.")
         End Sub
-        Private Async Function ValidateCredentialWithServerAsync(
-    scanValue As String,
-    purpose As AuthPurpose
-) As Task(Of AuthResult)
-            ' ====== TEMP STUB FOR TESTING CORE FLOW ======
-            ' Replace with real HTTP later.
-            Await Task.Delay(150) ' simulate latency
-
-            Dim scan = (If(scanValue, "")).Trim()
-
-            Select Case purpose
-                Case AuthPurpose.PickupAccess
-                    ' Example: scan "1111" -> authorized pickup -> locker "A-001"
-                    If scan = "123698740" OrElse scan.Equals("PICKUP", StringComparison.OrdinalIgnoreCase) Then
-                        Return New AuthResult With {
-                            .IsAuthorized = True,
-                            .Purpose = purpose,
-                            .Message = "OK",
-                            .UserId = "ADMIN1",
-                            .DisplayName = "Test Pickup User",
-                            .WorkOrderNumber = "WO-10001",
-                            .LockerNumber = "A-001",
-                            .NextAction = "OPEN_LOCKER"
-                        }
-
-                    End If
-
-                    Return New AuthResult With {
-    .IsAuthorized = True,
-    .Purpose = purpose,
-    .Message = "OK",
-    .UserId = "USER1",
-    .DisplayName = "Test Pickup User",
-    .NextAction = "PROMPT_WORK_ORDER",
-    .WorkOrders = New List(Of WorkOrderAuthItem) From {
-        New WorkOrderAuthItem With {
-            .WorkOrderNumber = "WO-10001",
-            .TransactionType = "Pickup",
-            .LockerNumber = "A-001",
-            .AllowedSizeCode = "A"
-        }
-    }
-}
-
-
-                Case AuthPurpose.DeliveryCourierAuth
-                    ' Example: scan "2222" -> authorized courier
-                    If scan = "2222" OrElse scan.Equals("COURIER", StringComparison.OrdinalIgnoreCase) Then
-                        Return New AuthResult With {
-                            .IsAuthorized = True,
-                            .Purpose = purpose,
-                            .Message = "OK",
-                            .UserId = "COURIER1",
-                            .DisplayName = "Test Courier",
-                            .NextAction = "PROMPT_WORK_ORDER"
-                        }
-                    End If
-
-                    Return New AuthResult With {
-    .IsAuthorized = True,
-    .Purpose = purpose,
-    .Message = "OK",
-    .UserId = "COURIER1",
-    .DisplayName = "Test Courier",
-    .NextAction = "PROMPT_WORK_ORDER",
-    .WorkOrders = New List(Of WorkOrderAuthItem) From {
-        New WorkOrderAuthItem With {
-            .WorkOrderNumber = "WO-20001",
-            .TransactionType = "Delivery",
-            .LockerNumber = "",          ' not assigned yet
-            .AllowedSizeCode = "B"
-        }
-    }
-}
-
-                Case AuthPurpose.AdminAccess
-                    ' Example admin credentials
-                    ' - keypad: "9999"
-                    ' - or badge/scan: "ADMIN"
-                    If scan = "123698740" OrElse scan.Equals("ADMIN", StringComparison.OrdinalIgnoreCase) Then
-                        Return New AuthResult With {
-            .IsAuthorized = True,
-            .Purpose = purpose,
-            .Message = "OK",
-            .UserId = "ADMIN1",
-            .DisplayName = "Test Admin",
-            .NextAction = "OPEN_ADMIN"
-        }
-                    End If
-
-                    Return New AuthResult With {
-        .IsAuthorized = False,
-        .Purpose = purpose,
-        .Message = "Admin credential not recognized."
-    }
-
-
-                Case Else
-                    Return New AuthResult With {
-                        .IsAuthorized = False,
-                        .Purpose = purpose,
-                        .Message = "Unsupported purpose in stub."
-                    }
-            End Select
-
-        End Function
-
-        Private Function CurrentActorId(actorType As Audit.ActorType) As String
-            If _authResult IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(_authResult.UserId) Then
-                Select Case actorType
-                    Case Audit.ActorType.Admin
-                        Return $"Admin:{_authResult.UserId}"
-                    Case Else
-                        Return $"User:{_authResult.UserId}"
-                End Select
-            End If
-            Return If(actorType = Audit.ActorType.Admin, "Admin:Unknown", "User:Unknown")
-        End Function
-
-
-
     End Class
 End Namespace
 

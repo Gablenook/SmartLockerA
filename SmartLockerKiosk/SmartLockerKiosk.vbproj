@@ -39,12 +39,6 @@
 	<ItemGroup>
 		<ProjectReference Include="..\Keypad\Keypad.csproj" />
 	</ItemGroup>
-	<ItemGroup>
-	  <Reference Include="HldSerialLib">
-	    <HintPath>..\..\VBPrograms\Headleader\SDKWin\LCBWin\LCBSDK\Demo Code\Include\HldSerialLib.dll</HintPath>
-	    <Private>True</Private>
-	  </Reference>
-	</ItemGroup>
 
 	<!-- Embedded image resources -->
 	<ItemGroup>
@@ -53,6 +47,12 @@
 	</ItemGroup>
 	<ItemGroup>
 	  <Import Include="HldSerialLib.Serial.LockBoard" />
+	</ItemGroup>
+	<ItemGroup>
+	  <Reference Include="HldSerialLib">
+	    <HintPath>..\lib\HldSerialLib.dll</HintPath>
+	    <Private>True</Private>
+	  </Reference>
 	</ItemGroup>
 
 </Project>

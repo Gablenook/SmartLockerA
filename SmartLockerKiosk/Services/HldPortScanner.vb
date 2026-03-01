@@ -1,52 +1,59 @@
 ﻿Imports System.IO.Ports
-Imports HldSerialLib.Serial.LockBoard
+Imports System.Threading.Tasks
 
 Public Class HldPortScanner
-    Private ReadOnly _probeRelays As Integer() = {1, 2, 3}
-    Public Function ScanCandidates() As List(Of PortCandidate)
+
+    Private Const ProbeTimeoutMs As Integer = 1500
+    Private Const MinScoreToInclude As Integer = 1
+
+    Public Async Function ScanCandidatesAsync() As Task(Of List(Of PortCandidate))
         Dim results As New List(Of PortCandidate)
 
-        For Each port In SerialPort.GetPortNames().OrderBy(Function(p) p, StringComparer.OrdinalIgnoreCase)
-            Dim score As Integer = ProbePortScore(port)
-            If score >= 60 Then
+        Dim ports = SerialPort.GetPortNames().OrderBy(Function(p) p, StringComparer.OrdinalIgnoreCase).ToList()
+
+        For Each port In ports
+            Dim score = Await ProbePortScoreAsync(port).ConfigureAwait(False)
+            If score >= MinScoreToInclude Then
                 results.Add(New PortCandidate With {.PortName = port, .Score = score})
             End If
         Next
 
         Return results.OrderByDescending(Function(c) c.Score).ToList()
     End Function
-    Private Function ProbePortScore(portName As String) As Integer
-        Dim board As HldLockBoard = Nothing
+
+    Private Async Function ProbePortScoreAsync(portName As String) As Task(Of Integer)
+        Dim ctl As HldRelayController.HldRelayController = Nothing
 
         Try
-            board = New HldLockBoard()
-            board.Open(portName, 115200)
-            Threading.Thread.Sleep(150)
+            ctl = New HldRelayController.HldRelayController(autoReconnect:=False)
 
-            Dim successes As Integer = 0
+            Dim tcs As New TaskCompletionSource(Of Boolean)(TaskCreationOptions.RunContinuationsAsynchronously)
 
-            For Each relayId In _probeRelays
-                Try
-                    board.GetLockStatus(relayId)
-                    successes += 1
-                Catch
-                    Exit For
-                End Try
-            Next
+            AddHandler ctl.StatusUpdated,
+                Sub()
+                    If Not tcs.Task.IsCompleted Then tcs.TrySetResult(True)
+                End Sub
 
-            If successes = 0 Then Return 0
-            If successes = 1 Then Return 70
-            If successes = 2 Then Return 85
-            Return 95
+            ctl.Start(portName)
+
+            Dim gotFrame As Boolean = Await WaitWithTimeoutAsync(tcs.Task, TimeSpan.FromMilliseconds(ProbeTimeoutMs)).ConfigureAwait(False)
+            If Not gotFrame OrElse ctl.LastFrameUtc = DateTime.MinValue Then Return 0
+
+            Return If(ctl.IsCommsHealthy, 95, 70)
 
         Catch
             Return 0
-
         Finally
-            If board IsNot Nothing Then
-                Try : board.Close() : Catch : End Try
+            If ctl IsNot Nothing Then
+                Try : ctl.Dispose() : Catch : End Try
             End If
         End Try
+    End Function
+
+    Private Shared Async Function WaitWithTimeoutAsync(task As Task, timeout As TimeSpan) As Task(Of Boolean)
+        Dim delay = Task.Delay(timeout)
+        Dim completed = Await Task.WhenAny(task, delay).ConfigureAwait(False)
+        Return completed Is task
     End Function
 
 End Class

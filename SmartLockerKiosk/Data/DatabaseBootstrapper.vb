@@ -1,17 +1,21 @@
-﻿Imports System.IO
+﻿Imports System.Diagnostics
+Imports System.IO
 Imports Microsoft.EntityFrameworkCore
-Imports System.Diagnostics
+Imports SmartLockerKiosk.SmartLockerKiosk
 
 Public Module DatabaseBootstrapper
 
     Private Const DbFolder As String = "C:\ProgramData\SmartLockerKiosk"
     Private Const DbFile As String = "smartlocker.db"
 
-    Public Function BuildDbContext() As KioskDbContext
+    ' Keep this internal helper so we don't duplicate path logic everywhere.
+    Private Function GetDbPath() As String
         Directory.CreateDirectory(DbFolder)
-        Dim dbPath = Path.Combine(DbFolder, DbFile)
+        Return Path.Combine(DbFolder, DbFile)
+    End Function
+    Public Function BuildDbContext() As KioskDbContext
+        Dim dbPath = GetDbPath()
 
-        Debug.WriteLine($"DB CONTEXT PATH = {dbPath}")
 
         Dim options = New DbContextOptionsBuilder(Of KioskDbContext)().
             UseSqlite($"Data Source={dbPath}").
@@ -19,15 +23,18 @@ Public Module DatabaseBootstrapper
 
         Return New KioskDbContext(options)
     End Function
+
     Public Sub InitializeDatabase()
         Using db = BuildDbContext()
+
+            ' Since you are not using migrations yet:
             db.Database.EnsureCreated()
 
+            ' Seed in a single place; each method is idempotent.
             SeedLockerSizesIfMissing(db)
             SeedLockerStatusesIfMissing(db)
+            SeedKioskStateIfMissing(db)
 
-            ' NEW: status rows for each locker
-            SeedLockerStatusesIfMissing(db)
         End Using
     End Sub
     Private Sub SeedLockerSizesIfMissing(db As KioskDbContext)
@@ -45,12 +52,14 @@ Public Module DatabaseBootstrapper
     End Sub
     Private Sub SeedLockerStatusesIfMissing(db As KioskDbContext)
 
-        ' If there are no lockers configured yet, nothing to do
+        ' If there are no lockers configured yet, nothing to seed
         If Not db.Lockers.Any() Then Return
 
-        ' Get locker ids and existing status ids
-        Dim lockerIds = db.Lockers.Select(Function(l) l.LockerId).ToList()
-        Dim existingStatusIds = db.LockerStatuses.Select(Function(s) s.LockerId).ToHashSet()
+        Dim lockerIds As List(Of Integer) =
+            db.Lockers.Select(Function(l) l.LockerId).ToList()
+
+        Dim existingStatusIds As HashSet(Of Integer) =
+            db.LockerStatuses.Select(Function(s) s.LockerId).ToHashSet()
 
         Dim nowUtc = DateTime.UtcNow
         Dim added As Integer = 0
@@ -58,21 +67,34 @@ Public Module DatabaseBootstrapper
         For Each id In lockerIds
             If Not existingStatusIds.Contains(id) Then
                 db.LockerStatuses.Add(New LockerStatus With {
-                .LockerId = id,
-                .LockState = LockState.Unknown,
-                .OccupancyState = OccupancyState.Unknown, ' or Available/Vacant if you prefer
-                .LastUpdatedUtc = nowUtc
-            })
+                    .LockerId = id,
+                    .LockState = LockState.Unknown,
+                    .OccupancyState = OccupancyState.Unknown,
+                    .LastUpdatedUtc = nowUtc
+                })
                 added += 1
             End If
         Next
 
-        If added > 0 Then
-            db.SaveChanges()
-        End If
+        If added > 0 Then db.SaveChanges()
 
     End Sub
+    Private Sub SeedKioskStateIfMissing(db As KioskDbContext)
+        Dim kioskId As String = (If(AppSettings.KioskID, "")).Trim()
+        If kioskId.Length = 0 Then Return
 
+        Dim row = db.KioskState.SingleOrDefault(Function(x) x.KioskId = kioskId)
+        If row IsNot Nothing Then Return
+
+        db.KioskState.Add(New KioskState With {
+            .KioskId = kioskId,
+            .LocationId = AppSettings.LocationId,
+            .IsCommissioned = False,
+            .LastUpdatedUtc = DateTime.UtcNow
+       })
+        db.SaveChanges()
+    End Sub
 
 End Module
+
 

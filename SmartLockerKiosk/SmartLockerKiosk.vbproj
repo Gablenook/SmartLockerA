@@ -49,8 +49,8 @@
 	  <Import Include="HldSerialLib.Serial.LockBoard" />
 	</ItemGroup>
 	<ItemGroup>
-	  <Reference Include="HldSerialLib">
-	    <HintPath>..\lib\HldSerialLib.dll</HintPath>
+	  <Reference Include="HldRelayController">
+	    <HintPath>..\lib\HldRelayController.dll</HintPath>
 	    <Private>True</Private>
 	  </Reference>
 	</ItemGroup>

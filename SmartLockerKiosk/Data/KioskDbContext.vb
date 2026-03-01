@@ -1,4 +1,5 @@
 ﻿Imports Microsoft.EntityFrameworkCore
+Imports SmartLockerKiosk.SmartLockerKiosk
 
 Public Class KioskDbContext
     Inherits DbContext
@@ -6,7 +7,7 @@ Public Class KioskDbContext
     Public Sub New(options As DbContextOptions(Of KioskDbContext))
         MyBase.New(options)
     End Sub
-
+    Public Property KioskState As DbSet(Of KioskState)
     Public Property Lockers As DbSet(Of Locker)
     Public Property LockerStatuses As DbSet(Of LockerStatus)
     Public Property ControllerPorts As DbSet(Of ControllerPort)
@@ -14,12 +15,43 @@ Public Class KioskDbContext
 
     Protected Overrides Sub OnModelCreating(modelBuilder As ModelBuilder)
         MyBase.OnModelCreating(modelBuilder)
+        ConfigureKioskState(modelBuilder) '
         ConfigureLocker(modelBuilder)
         ConfigureLockerStatus(modelBuilder)
         ConfigureLockerToStatusRelationship(modelBuilder)
         ConfigureControllerPort(modelBuilder)
         ConfigureLockerSize(modelBuilder)
         ConfigureLockerToSizeRelationship(modelBuilder)
+    End Sub
+    Private Shared Sub ConfigureKioskState(modelBuilder As ModelBuilder)
+        Dim e = modelBuilder.Entity(Of KioskState)()
+
+        ' PK
+        e.HasKey(Function(x) x.KioskId)
+
+        e.Property(Function(x) x.KioskId).
+        IsRequired().
+        HasMaxLength(64) ' adjust if you want shorter/longer
+
+        e.Property(Function(x) x.LocationId).
+        HasMaxLength(64).
+        IsRequired(False)
+
+        e.Property(Function(x) x.IsCommissioned).
+        IsRequired()
+
+        e.Property(Function(x) x.CommissionedUtc).
+        IsRequired(False)
+
+        e.Property(Function(x) x.LastUpdatedUtc).
+        IsRequired()
+
+        e.Property(Function(x) x.CommissionedBy).
+        HasMaxLength(64).
+        IsRequired(False)
+
+        ' Helpful index if you ever store more than one kiosk record
+        e.HasIndex(Function(x) x.IsCommissioned)
     End Sub
     Private Shared Sub ConfigureLocker(modelBuilder As ModelBuilder)
         Dim e = modelBuilder.Entity(Of Locker)()

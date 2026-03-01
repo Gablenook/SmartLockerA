@@ -8,7 +8,7 @@ Namespace SmartLockerKiosk
         Inherits Window
 
         ' Set this when you open AdminScreen (e.g., "Admin:Kevin" or "Admin:Badge123")
-        Public Property AdminActorId As String = "Admin:Unknown"
+        Public Property ActorId As String = "Admin:Unknown"
 
         ' One correlation id for this admin session (open -> close)
         Private ReadOnly _sessionCorrelationId As String = Guid.NewGuid().ToString("N")
@@ -21,7 +21,7 @@ Namespace SmartLockerKiosk
             Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
                 .EventType = Audit.AuditEventType.AdminLogin,
                 .ActorType = Audit.ActorType.Admin,
-                .ActorId = AdminActorId,
+                .ActorId = ActorId,
                 .AffectedComponent = "AdminScreen",
                 .Outcome = Audit.AuditOutcome.Success,
                 .CorrelationId = _sessionCorrelationId,
@@ -59,15 +59,15 @@ Namespace SmartLockerKiosk
             Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
                 .EventType = Audit.AuditEventType.PolicyConfigurationChange,
                 .ActorType = Audit.ActorType.Admin,
-                .ActorId = AdminActorId,
+                .ActorId = ActorId,
                 .AffectedComponent = "AdminScreen",
                 .Outcome = Audit.AuditOutcome.Success,
                 .CorrelationId = actionId,
                 .ReasonCode = "OpenLockerSetupWindow"
             })
 
-            Dim w As New LockerSetupWindow With {.Owner = Me, .AdminActorID = Me.AdminActorId}
-            w.ShowDialog()
+            'Dim w As New LockerSetupWindow With {.Owner = Me, .ActorID = Me.ActorId}
+            'w.ShowDialog()
         End Sub
         Private Sub LockerStatus_Click(sender As Object, e As RoutedEventArgs)
             Dim w As New LockerStatusAdmin With {.Owner = Me}
@@ -85,7 +85,7 @@ Namespace SmartLockerKiosk
             Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
                 .EventType = Audit.AuditEventType.PolicyConfigurationChange,
                 .ActorType = Audit.ActorType.Admin,
-                .ActorId = AdminActorId,
+                .ActorId = ActorId,
                 .AffectedComponent = "AdminScreen",
                 .Outcome = Audit.AuditOutcome.Success,
                 .CorrelationId = actionId,
@@ -94,7 +94,7 @@ Namespace SmartLockerKiosk
 
             Dim w As New ControllerSetupWindow With {
      .Owner = Me,
-     .AdminActorId = Me.AdminActorId
+     .ActorId = Me.ActorId
  }
             w.ShowDialog()
 
@@ -105,7 +105,7 @@ Namespace SmartLockerKiosk
             Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
                 .EventType = Audit.AuditEventType.SystemShutdown,
                 .ActorType = Audit.ActorType.Admin,
-                .ActorId = AdminActorId,
+                .ActorId = ActorId,
                 .AffectedComponent = "AdminScreen",
                 .Outcome = Audit.AuditOutcome.Success,
                 .CorrelationId = actionId,
@@ -141,7 +141,7 @@ Namespace SmartLockerKiosk
                 Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
                     .EventType = Audit.AuditEventType.PolicyConfigurationChange,
                     .ActorType = Audit.ActorType.Admin,
-                    .ActorId = AdminActorId,
+                    .ActorId = ActorId,
                     .AffectedComponent = "AdminScreen",
                     .Outcome = Audit.AuditOutcome.Success,
                     .CorrelationId = actionId,
@@ -154,7 +154,7 @@ Namespace SmartLockerKiosk
                 Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
                     .EventType = Audit.AuditEventType.PolicyConfigurationChange,
                     .ActorType = Audit.ActorType.Admin,
-                    .ActorId = AdminActorId,
+                    .ActorId = ActorId,
                     .AffectedComponent = "AdminScreen",
                     .Outcome = Audit.AuditOutcome.Error,
                     .CorrelationId = actionId,
@@ -170,7 +170,7 @@ Namespace SmartLockerKiosk
             Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
                 .EventType = Audit.AuditEventType.AdminLogout,
                 .ActorType = Audit.ActorType.Admin,
-                .ActorId = AdminActorId,
+                .ActorId = ActorId,
                 .AffectedComponent = "AdminScreen",
                 .Outcome = Audit.AuditOutcome.Success,
                 .CorrelationId = _sessionCorrelationId,

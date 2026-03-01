@@ -34,16 +34,6 @@
         Public Shared Property TestPickupLockerNumber As String = "3"
 
         ' =========================
-        ' Derived endpoints (single source of truth)
-        ' =========================
-
-        Public Shared ReadOnly Property AuthEndpointUrl As String
-            Get
-                Return CombineUrl(BaseApiUrl, "/v1/auth/authorize")
-            End Get
-        End Property
-
-        ' =========================
         ' Guards
         ' =========================
 
@@ -67,14 +57,6 @@
             Return Not String.IsNullOrWhiteSpace(BaseApiUrl) AndAlso
                    Not String.IsNullOrWhiteSpace(KioskID) AndAlso
                    Not String.IsNullOrWhiteSpace(DeviceApiKey)
-        End Function
-
-        Private Shared Function CombineUrl(baseUrl As String, relativePath As String) As String
-            Dim b = (If(baseUrl, "")).Trim().TrimEnd("/"c)
-            Dim r = (If(relativePath, "")).Trim()
-
-            If Not r.StartsWith("/") Then r = "/" & r
-            Return b & r
         End Function
 
     End Class

@@ -8,7 +8,7 @@ Imports System.Windows.Controls
 Partial Public Class LockerStatusAdmin
     Inherits Window
 
-    Public Property AdminActorId As String = "Admin:Unknown"
+    Public Property ActorId As String = "Admin:Unknown"
 
     Private ReadOnly _rows As New ObservableCollection(Of LockerStatusRow)
     Private _isScanning As Boolean = False
@@ -218,7 +218,7 @@ Partial Public Class LockerStatusAdmin
                         status.LockState = r.LockState
                         status.PackagePresent = r.PackagePresent
                         status.LastUpdatedUtc = DateTime.UtcNow
-                        status.LastActorId = AdminActorId
+                        status.LastActorId = ActorId
 
                         Dim rsn = (If(r.Reason, "")).Trim()
                         If rsn.Length = 0 Then rsn = $"Admin set status: Occ={r.OccupancyState}, Lock={r.LockState}"
@@ -233,7 +233,7 @@ Partial Public Class LockerStatusAdmin
                         Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
                             .EventType = Audit.AuditEventType.PolicyConfigurationChange,
                             .ActorType = Audit.ActorType.Admin,
-                            .ActorId = AdminActorId,
+                            .ActorId = ActorId,
                             .AffectedComponent = "LockerStatusAdmin",
                             .Outcome = Audit.AuditOutcome.Success,
                             .CorrelationId = correlationId,
@@ -249,7 +249,7 @@ Partial Public Class LockerStatusAdmin
                         Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
                             .EventType = Audit.AuditEventType.PolicyConfigurationChange,
                             .ActorType = Audit.ActorType.Admin,
-                            .ActorId = AdminActorId,
+                            .ActorId = ActorId,
                             .AffectedComponent = "LockerStatusAdmin",
                             .Outcome = Audit.AuditOutcome.Error,
                             .CorrelationId = correlationId,

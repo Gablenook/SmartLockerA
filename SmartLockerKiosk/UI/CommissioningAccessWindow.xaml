@@ -1,0 +1,238 @@
+﻿<Window x:Class="SmartLockerKiosk.CommissioningAccessWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Commissioning Access"
+        WindowStartupLocation="CenterScreen"
+        Width="800"
+        Height="1200"
+        MinWidth="800"
+        MinHeight="1200"
+        ResizeMode="CanResize"
+        WindowStyle="None"
+        Topmost="True"
+        Background="#00205B">
+
+    <Grid Margin="60">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <!-- Title -->
+            <RowDefinition Height="20"/>
+            <RowDefinition Height="Auto"/>
+            <!-- Step 1 -->
+            <RowDefinition Height="20"/>
+            <RowDefinition Height="Auto"/>
+            <!-- Step 2 -->
+            <RowDefinition Height="*"/>
+            <!-- Status -->
+            <RowDefinition Height="Auto"/>
+            <!-- Bottom -->
+        </Grid.RowDefinitions>
+
+        <!-- Title -->
+        <TextBlock Grid.Row="0"
+                   Text="Commissioning Access"
+                   Foreground="White"
+                   FontSize="44"
+                   FontWeight="SemiBold"
+                   Margin="0,0,0,10"/>
+
+        <!-- =========================
+             STEP 1 — NETWORK
+             ========================= -->
+        <Border Grid.Row="2"
+                Background="#0F3A6B"
+                CornerRadius="18"
+                Padding="24">
+            <StackPanel>
+
+                <TextBlock Text="Step 1 — Network"
+                           Foreground="White"
+                           FontSize="26"
+                           FontWeight="SemiBold"
+                           Margin="0,0,0,12"/>
+
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,14">
+                    <Button x:Name="CheckNetworkButton"
+                            Content="Refresh Networks"
+                            Width="240"
+                            Height="60"
+                            FontSize="20"
+                            Click="CheckNetwork_Click"
+                            Margin="0,0,12,0"/>
+
+                    <Button x:Name="OpenWifiSettingsButton"
+                            Content="Open Wi-Fi Settings"
+                            Width="240"
+                            Height="60"
+                            FontSize="20"
+                            Click="OpenWifiSettings_Click"/>
+                </StackPanel>
+
+                <TextBlock x:Name="NetworkSummaryText"
+                           Text="Network status: not checked."
+                           Foreground="White"
+                           Opacity="0.9"
+                           FontSize="18"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,12"/>
+
+                <TextBlock Text="Available Wi-Fi Networks"
+                           Foreground="White"
+                           FontSize="18"
+                           Margin="0,0,0,6"/>
+
+                <ListBox x:Name="NetworksListBox"
+         Height="220"
+         FontSize="18"
+         SelectionMode="Single"
+         SelectionChanged="NetworksListBox_SelectionChanged">
+
+                    <!-- ✅ Make items visible on dark background -->
+                    <ListBox.Background>#0B2C53</ListBox.Background>
+                    <ListBox.BorderBrush>#2D5C91</ListBox.BorderBrush>
+                    <ListBox.BorderThickness>1</ListBox.BorderThickness>
+
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem">
+                            <Setter Property="Background" Value="Transparent"/>
+                            <Setter Property="Foreground" Value="White"/>
+                            <Setter Property="Padding" Value="8,6"/>
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="ListBoxItem">
+                                        <Border x:Name="Bd"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="8"
+                                SnapsToDevicePixels="True">
+                                            <ContentPresenter/>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="Bd" Property="Background" Value="#244E7A"/>
+                                            </Trigger>
+                                            <Trigger Property="IsSelected" Value="True">
+                                                <Setter TargetName="Bd" Property="Background" Value="#2D6AA3"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </ListBox.ItemContainerStyle>
+
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Margin="4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="120"/>
+                                    <ColumnDefinition Width="140"/>
+                                </Grid.ColumnDefinitions>
+
+                                <TextBlock Grid.Column="0"
+                           Text="{Binding Ssid}"
+                           Foreground="White"
+                           FontSize="18"/>
+
+                                <TextBlock Grid.Column="1"
+                           Text="{Binding SignalText}"
+                           Foreground="White"
+                           FontSize="16"
+                           HorizontalAlignment="Right"/>
+
+                                <TextBlock Grid.Column="2"
+                           Text="{Binding SecurityText}"
+                           Foreground="White"
+                           FontSize="16"
+                           HorizontalAlignment="Right"/>
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+
+
+
+                </ListBox>
+
+                <TextBlock Text="Tip: Select a network, then use Open Wi-Fi Settings to join if needed."
+                           Foreground="White"
+                           Opacity="0.8"
+                           FontSize="16"
+                           Margin="0,10,0,0"
+                           TextWrapping="Wrap"/>
+            </StackPanel>
+        </Border>
+
+        <!-- =========================
+             STEP 2 — COMMISSIONING ID
+             ========================= -->
+        <Border Grid.Row="4"
+                Background="#0F3A6B"
+                CornerRadius="18"
+                Padding="24">
+            <StackPanel>
+
+                <TextBlock Text="Step 2 — Commissioning ID"
+                           Foreground="White"
+                           FontSize="26"
+                           FontWeight="SemiBold"
+                           Margin="0,0,0,12"/>
+
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,14">
+                    <TextBlock Text="Commissioning ID:"
+                               Foreground="White"
+                               FontSize="22"
+                               VerticalAlignment="Center"/>
+
+                    <TextBox x:Name="CommissioningIdTextBox"
+                             Width="520"
+                             Margin="16,0,0,0"
+                             FontSize="22"
+                             Height="44"/>
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal">
+                    <Button x:Name="ValidateButton"
+                            Content="Validate ID"
+                            Width="240"
+                            Height="60"
+                            FontSize="20"
+                            Click="Validate_Click"
+                            IsEnabled="False"/>
+                </StackPanel>
+
+                <TextBlock Text="Validate is enabled after network check passes (or if offline commissioning is allowed)."
+                           Foreground="White"
+                           Opacity="0.8"
+                           FontSize="16"
+                           Margin="0,10,0,0"
+                           TextWrapping="Wrap"/>
+            </StackPanel>
+        </Border>
+
+        <!-- Status / instructions -->
+        <TextBox Grid.Row="5"
+                 x:Name="StatusText"
+                 Text="Step 1: Refresh Networks. Step 2: Enter Commissioning ID and Validate."
+                 Foreground="White"
+                 Background="Transparent"
+                 BorderThickness="0"
+                 IsReadOnly="True"
+                 IsHitTestVisible="False"
+                 FontSize="20"
+                 TextWrapping="Wrap"
+                 Margin="0,18,0,0"/>
+
+        <!-- Bottom actions -->
+        <StackPanel Grid.Row="6"
+                    Orientation="Horizontal"
+                    HorizontalAlignment="Right"
+                    Margin="0,18,0,0">
+            <Button Content="Cancel"
+                    Width="160"
+                    Height="60"
+                    FontSize="20"
+                    Click="Cancel_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>

@@ -2,6 +2,8 @@
     Public Property RelayId As Integer
     Public Property LockStatus As Integer?
     Public Property SensorStatus As Integer?
+    Public Property ChangeCount As Integer
+    Public Property UniqueLockValues As String
     Public Property LastChangeMs As Integer
     Public Property Notes As String
 

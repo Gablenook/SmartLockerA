@@ -1,8 +1,12 @@
-﻿Imports System.Net
+﻿Imports System.Linq
+Imports System.Net
 Imports System.Net.Http
 Imports System.Net.NetworkInformation
 Imports System.Net.Sockets
+Imports System.Reflection
 Imports System.Security.Authentication
+Imports System.Threading
+Imports System.Threading.Tasks
 Imports System.Windows
 Imports System.Windows.Controls
 Imports System.Windows.Threading
@@ -22,6 +26,19 @@ Namespace SmartLockerKiosk
         Private Const BackendBaseUrl As String = "https://smartlockerapp.azurewebsites.net"
         Private Const HealthPath As String = "/api/health"  ' adjust to your real endpoint
         Private Const NetworkTimeoutMs As Integer = 3000
+        Public Property TenantId As String
+        Public Property OrgNodeId As String
+        Public Property CommissioningSessionId As String
+        Public Property KioskName As String
+        Public Property OrganizationName As String
+        Public Property LogoUri As String
+        Public Property SecondaryLogoUri As String
+        Public Property AccentColor As String
+
+        Private ReadOnly _commissioningService As ICommissioningService
+
+        Private Const LocalBypassCommissioningCode As String = "12345"
+        Private Const EnableBackendCommissioning As Boolean = False
 
         ' Network gating for Validate
         Private _networkChecked As Boolean = False
@@ -38,8 +55,15 @@ Namespace SmartLockerKiosk
         Private _restoreTimer As DispatcherTimer = Nothing
         Private _settingsProcess As Process = Nothing
 
+        Public Sub New()
+            InitializeComponent()
 
-
+            If EnableBackendCommissioning Then
+                _commissioningService = New BackendCommissioningService()
+            Else
+                _commissioningService = New BypassCommissioningService(LocalBypassCommissioningCode)
+            End If
+        End Sub
         Private Sub Window_Loaded(sender As Object, e As RoutedEventArgs) Handles Me.Loaded
             ' Clamp to the current screen so debug runs don't look weird
             Dim maxW = SystemParameters.WorkArea.Width
@@ -69,8 +93,6 @@ Namespace SmartLockerKiosk
 
             StatusText.Text = "Step 1: Refresh Networks. Step 2: Enter Commissioning ID and Validate."
         End Sub
-
-        'Make network connections
         Private Async Sub CheckNetwork_Click(sender As Object, e As RoutedEventArgs)
             CheckNetworkButton.IsEnabled = False
             ValidateButton.IsEnabled = False
@@ -346,9 +368,7 @@ Namespace SmartLockerKiosk
             ' Soft-nudge only; don't fight too hard or you'll annoy installers.
             StatusText.Text = "Finish Wi-Fi setup, then return here and press Refresh Networks."
         End Sub
-
-        'Validate Commissioning ID
-        Private Sub Validate_Click(sender As Object, e As RoutedEventArgs)
+        Private Async Sub Validate_Click(sender As Object, e As RoutedEventArgs)
             If Not _networkChecked AndAlso Not AllowOfflineCommissioning Then
                 StatusText.Text = "Please run Refresh Networks first."
                 Return
@@ -365,30 +385,81 @@ Namespace SmartLockerKiosk
                 Return
             End If
 
-            ' -----------------------------
-            ' TEMP LOCAL VALIDATION (no backend yet)
-            ' -----------------------------
-            ' Put the real expected code in AppSettings when you’re ready.
-            Dim expected As String = (If(_commissioningToken, "12345")).Trim()
-            Dim bypass As String = "BYPASS-LOCAL"
-
-            Dim ok As Boolean =
-        String.Equals(id, expected, StringComparison.OrdinalIgnoreCase) OrElse
-        String.Equals(id, bypass, StringComparison.OrdinalIgnoreCase)
-
-            If Not ok Then
-                StatusText.Text = "Invalid Commissioning ID."
+            If Not id.All(Function(ch) Char.IsDigit(ch)) Then
+                StatusText.Text = "Commissioning ID must be numeric."
                 _idValidated = False
                 Return
             End If
 
-            _idValidated = True
-            StatusText.Text = "Commissioning ID validated. Proceeding…"
-            GoToControllerSetup()
-        End Sub
+            ValidateButton.IsEnabled = False
+            CheckNetworkButton.IsEnabled = False
 
-        'Setup the usb-comports
-        Private Sub GoToControllerSetup()
+            Try
+                StatusText.Text = "Validating Commissioning ID..."
+
+                Dim result = Await _commissioningService.BeginCommissioningAsync(id, CancellationToken.None)
+
+                If result Is Nothing Then
+                    _idValidated = False
+                    StatusText.Text = "No response from commissioning service."
+                    Return
+                End If
+
+                If Not result.Ok Then
+                    _idValidated = False
+
+                    If result.Error IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(result.Error.message) Then
+                        StatusText.Text = result.Error.message
+                    Else
+                        StatusText.Text = "Commissioning validation failed."
+                    End If
+
+                    Return
+                End If
+
+                If result.Data Is Nothing Then
+                    _idValidated = False
+                    StatusText.Text = "Commissioning validation returned no data."
+                    Return
+                End If
+
+                If Not result.Data.validated Then
+                    _idValidated = False
+                    StatusText.Text = "Invalid Commissioning ID."
+                    Return
+                End If
+
+                ' Capture returned context for later commissioning steps
+                _idValidated = True
+                _commissioningToken = result.Data.commissioningToken
+
+                ActorId = result.Data.actorId
+                KioskId = result.Data.kioskId
+                TenantId = result.Data.tenantId
+                OrgNodeId = result.Data.orgNodeId
+                CommissioningSessionId = result.Data.commissioningSessionId
+
+                KioskName = result.Data.kioskName
+                If result.Data.branding IsNot Nothing Then
+                    OrganizationName = result.Data.branding.organizationName
+                    LogoUri = result.Data.branding.logoUri
+                    SecondaryLogoUri = result.Data.branding.secondaryLogoUri
+                    AccentColor = result.Data.branding.accentColor
+                End If
+
+                StatusText.Text = "Commissioning ID validated. Proceeding..."
+                GoToControllerSetup()
+
+            Catch ex As Exception
+                _idValidated = False
+                StatusText.Text = "Validation failed: " & ex.Message
+
+            Finally
+                ValidateButton.IsEnabled = _networkOk
+                CheckNetworkButton.IsEnabled = True
+            End Try
+        End Sub
+        Private Async Sub GoToControllerSetup()
             If Not _networkOk AndAlso Not AllowOfflineCommissioning Then
                 StatusText.Text = "Network not ready. Complete Step 1 first."
                 Return
@@ -403,19 +474,23 @@ Namespace SmartLockerKiosk
 
             ' 1) Ports setup
             Try
-                StatusText.Text = "Opening Controller Setup…"
+                StatusText.Text = "Opening Controller Setup..."
 
-                Dim portsWin As New ControllerSetupWindow() With {.ActorId = effectiveActorId}
+                Dim portsWin As New ControllerSetupWindow() With {
+            .ActorId = effectiveActorId
+        }
                 portsWin.Owner = Me
                 portsWin.WindowStartupLocation = WindowStartupLocation.CenterOwner
                 portsWin.Topmost = True
-                Dim ok = portsWin.ShowDialog()
-                If ok <> True Then
+
+                Dim portsOk = portsWin.ShowDialog()
+                If portsOk <> True Then
                     StatusText.Text = "Controller setup was not completed. Please save Branch ports to continue."
                     Return
                 End If
 
                 StatusText.Text = "Controller setup complete."
+
             Catch ex As Exception
                 StatusText.Text = "ControllerSetupWindow failed: " & ex.GetType().Name & ": " & ex.Message
                 MessageBox.Show(ex.ToString(), "ControllerSetupWindow exception")
@@ -439,17 +514,164 @@ Namespace SmartLockerKiosk
             End If
 
             ' 3) Locker commissioning
-            Dim m As New LockerCommissioningWindow(_lockerController) With {
+            Dim lockerWin As New LockerCommissioningWindow(_lockerController) With {
         .ActorId = effectiveActorId,
         .KioskId = KioskId
     }
-            m.Owner = Me
-            m.WindowStartupLocation = WindowStartupLocation.CenterOwner
-            m.ShowDialog()
+            lockerWin.Owner = Me
+            lockerWin.WindowStartupLocation = WindowStartupLocation.CenterOwner
 
+            Dim lockerOk = lockerWin.ShowDialog()
+            If lockerOk <> True Then
+                StatusText.Text = "Locker commissioning was not completed."
+                Return
+            End If
+
+            StatusText.Text = "Local commissioning complete. Registering kiosk health..."
+
+            ' 4) Register commissioning health
+            Dim appVersion As String = ""
+            Try
+                appVersion = Assembly.GetExecutingAssembly().GetName().Version.ToString()
+            Catch
+                appVersion = ""
+            End Try
+
+            Dim healthRequest As New RegisterCommissioningHealthRequest With {
+        .commissioningSessionId = CommissioningSessionId,
+        .kioskId = KioskId,
+        .tenantId = TenantId,
+        .orgNodeId = OrgNodeId,
+        .deviceInfo = New CommissioningDeviceInfo With {
+            .machineName = Environment.MachineName,
+            .deviceName = If(KioskName, ""),
+            .osVersion = Environment.OSVersion.ToString(),
+            .appVersion = appVersion,
+            .hardwareFingerprint = Nothing
+        },
+        .networkStatus = New CommissioningNetworkStatusDTO With {
+            .internetReachable = _internetOk,
+            .backendReachable = _networkOk
+        },
+        .healthStatus = New CommissioningHealthStatusDTO With {
+            .applicationStarted = True,
+            .localDatabaseInitialized = True,
+            .keypadAvailable = True
+        },
+        .reportedAtUtc = DateTime.UtcNow
+    }
+
+            Dim healthResult As ApiResult(Of RegisterCommissioningHealthResponse) = Nothing
+
+            Try
+                healthResult = Await _commissioningService.RegisterHealthAsync(healthRequest, CancellationToken.None)
+            Catch ex As Exception
+                StatusText.Text = "Health registration failed: " & ex.Message
+                Return
+            End Try
+
+            If healthResult Is Nothing Then
+                StatusText.Text = "Health registration returned no response."
+                Return
+            End If
+
+            If Not healthResult.Ok OrElse healthResult.Data Is Nothing OrElse Not healthResult.Data.registered Then
+                If healthResult.Error IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(healthResult.Error.message) Then
+                    StatusText.Text = healthResult.Error.message
+                Else
+                    StatusText.Text = "Health registration failed."
+                End If
+                Return
+            End If
+
+            StatusText.Text = "Health registered. Finalizing commissioning..."
+
+            ' 5) Finalize commissioning
+            Dim finalizeRequest As New FinalizeCommissioningRequest With {
+        .commissioningSessionId = CommissioningSessionId,
+        .kioskId = KioskId,
+        .tenantId = TenantId,
+        .orgNodeId = OrgNodeId,
+        .actorId = ActorId,
+        .deviceInfo = New CommissioningDeviceInfo With {
+            .machineName = Environment.MachineName,
+            .deviceName = If(KioskName, ""),
+            .osVersion = Environment.OSVersion.ToString(),
+            .appVersion = appVersion,
+            .hardwareFingerprint = Nothing
+        },
+        .commissioningResult = New FinalizeCommissioningResultDTO With {
+            .controllerSetupCompleted = True,
+            .lockerMappingCompleted = True,
+            .healthRegistrationCompleted = True,
+            .localDatabaseInitialized = True
+        }
+    }
+
+            Dim finalizeResult As ApiResult(Of FinalizeCommissioningResponse) = Nothing
+
+            Try
+                finalizeResult = Await _commissioningService.FinalizeCommissioningAsync(finalizeRequest, CancellationToken.None)
+            Catch ex As Exception
+                StatusText.Text = "Commissioning finalization failed: " & ex.Message
+                Return
+            End Try
+
+            If finalizeResult Is Nothing Then
+                StatusText.Text = "Finalization returned no response."
+                Return
+            End If
+
+            If Not finalizeResult.Ok OrElse finalizeResult.Data Is Nothing OrElse Not finalizeResult.Data.commissioned Then
+                If finalizeResult.Error IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(finalizeResult.Error.message) Then
+                    StatusText.Text = finalizeResult.Error.message
+                Else
+                    StatusText.Text = "Commissioning finalization failed."
+                End If
+                Return
+            End If
+
+            ' 6) Persist final commissioned state locally
+            Try
+                Using db = DatabaseBootstrapper.BuildDbContext()
+                    Dim ks = db.KioskState.SingleOrDefault(Function(x) x.KioskId = KioskId)
+
+                    If ks Is Nothing Then
+                        ks = New KioskState With {
+                    .KioskId = KioskId
+                }
+                        db.KioskState.Add(ks)
+                    End If
+
+                    ks.LocationId = AppSettings.LocationId
+                    ks.TenantId = TenantId
+                    ks.OrgNodeId = OrgNodeId
+                    ks.CommissioningSessionId = CommissioningSessionId
+                    ks.KioskName = KioskName
+                    ks.OrganizationName = OrganizationName
+                    ks.LogoUri = LogoUri
+                    ks.SecondaryLogoUri = SecondaryLogoUri
+                    ks.AccentColor = AccentColor
+                    ks.KioskToken = finalizeResult.Data.kioskToken
+                    ks.RefreshToken = finalizeResult.Data.refreshToken
+                    ks.IsCommissioned = True
+                    ks.CommissionedUtc = finalizeResult.Data.commissionedAtUtc
+                    ks.CommissionedBy = ActorId
+                    ks.LastHealthRegistrationUtc = healthResult.Data.registeredAtUtc
+                    ks.LastUpdatedUtc = DateTime.UtcNow
+
+                    db.SaveChanges()
+                End Using
+
+            Catch ex As Exception
+                StatusText.Text = "Commissioning finalized, but local kiosk state save failed: " & ex.Message
+                Return
+            End Try
+
+            StatusText.Text = "Commissioning finalized successfully."
+            Me.DialogResult = True
             Me.Close()
         End Sub
-
         Private Sub Cancel_Click(sender As Object, e As RoutedEventArgs)
             Me.Close()
         End Sub

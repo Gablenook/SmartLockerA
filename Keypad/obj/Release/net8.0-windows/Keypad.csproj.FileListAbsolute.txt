@@ -1,0 +1,17 @@
+G:\SmartLockerA\Keypad\bin\Release\net8.0-windows\Keypad.deps.json
+G:\SmartLockerA\Keypad\bin\Release\net8.0-windows\Keypad.dll
+G:\SmartLockerA\Keypad\bin\Release\net8.0-windows\Keypad.pdb
+G:\SmartLockerA\Keypad\obj\Release\net8.0-windows\NumericKeypadControl.baml
+G:\SmartLockerA\Keypad\obj\Release\net8.0-windows\Themes\KeypadTheme.baml
+G:\SmartLockerA\Keypad\obj\Release\net8.0-windows\NumericKeypadControl.g.cs
+G:\SmartLockerA\Keypad\obj\Release\net8.0-windows\Keypad_MarkupCompile.cache
+G:\SmartLockerA\Keypad\obj\Release\net8.0-windows\Keypad.g.resources
+G:\SmartLockerA\Keypad\obj\Release\net8.0-windows\Keypad.GeneratedMSBuildEditorConfig.editorconfig
+G:\SmartLockerA\Keypad\obj\Release\net8.0-windows\Keypad.AssemblyInfoInputs.cache
+G:\SmartLockerA\Keypad\obj\Release\net8.0-windows\Keypad.AssemblyInfo.cs
+G:\SmartLockerA\Keypad\obj\Release\net8.0-windows\Keypad.csproj.CoreCompileInputs.cache
+G:\SmartLockerA\Keypad\obj\Release\net8.0-windows\Keypad.sourcelink.json
+G:\SmartLockerA\Keypad\obj\Release\net8.0-windows\Keypad.dll
+G:\SmartLockerA\Keypad\obj\Release\net8.0-windows\refint\Keypad.dll
+G:\SmartLockerA\Keypad\obj\Release\net8.0-windows\Keypad.pdb
+G:\SmartLockerA\Keypad\obj\Release\net8.0-windows\ref\Keypad.dll

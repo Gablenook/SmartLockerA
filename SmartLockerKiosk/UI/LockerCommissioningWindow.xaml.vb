@@ -637,11 +637,6 @@ Namespace SmartLockerKiosk
                         Dim kioskId = (If(Me.KioskId, "")).Trim()
                         If kioskId.Length = 0 Then kioskId = (If(AppSettings.KioskID, "")).Trim()
 
-                        ' TODO (recommended): delete+replace existing mapping here if you support re-commissioning.
-                        ' For now, assume fresh DB; leaving deletion out is fine for your clean-slate retest.
-
-                        ' Insert new lockers and keep references so we only seed statuses for these
-
                         Dim nowUtc = DateTime.UtcNow
                         Dim newLockers As New List(Of Locker)
 
@@ -650,15 +645,15 @@ Namespace SmartLockerKiosk
                                 .LockerNumber = a.LockerTag.ToString(),
                                 .RelayId = a.RelayId,
                                 .Branch = a.Branch.Trim().ToUpperInvariant(),
-                                .Zone = "DEFAULT",          ' keep or adjust
+                                .Zone = "DEFAULT",
                                 .SizeCode = a.SizeCode,
                                 .IsEnabled = True,
                                 .Status = New LockerStatus With {
                                     .LockState = LockState.Unknown,
                                     .OccupancyState = OccupancyState.Unknown,
                                     .LastUpdatedUtc = nowUtc
-                                    }
-                                    }
+                                }
+                            }
 
                             db.Lockers.Add(row)
                             newLockers.Add(row)
@@ -668,19 +663,16 @@ Namespace SmartLockerKiosk
 
                         db.SaveChanges()
 
-
-                        ' Mark kiosk commissioned
                         Dim ks = db.KioskState.SingleOrDefault(Function(x) x.KioskId = kioskId)
                         If ks Is Nothing Then
                             ks = New KioskState With {
-                        .KioskId = kioskId,
-                        .LocationId = AppSettings.LocationId,
-                        .IsCommissioned = True,
-                        .LastUpdatedUtc = DateTime.UtcNow
-                    }
+                                .KioskId = kioskId,
+                                .LocationId = AppSettings.LocationId,
+                                .IsCommissioned = False,
+                                .LastUpdatedUtc = DateTime.UtcNow
+                            }
                             db.KioskState.Add(ks)
                         Else
-                            ks.IsCommissioned = True
                             ks.LastUpdatedUtc = DateTime.UtcNow
                         End If
 
@@ -691,9 +683,11 @@ Namespace SmartLockerKiosk
 
                 _confirmed = True
                 _saved = True
-                StatusText.Text = "Confirmed + saved. Commissioning complete."
+                StatusText.Text = "Confirmed + saved. Local locker commissioning complete."
                 ExitButton.IsEnabled = True
                 SetCallToAction(ExitButton, True)
+
+                Me.DialogResult = True
 
             Catch ex As DbUpdateException
                 Dim innerType = If(ex.InnerException?.GetType().FullName, "(none)")
@@ -722,6 +716,7 @@ Namespace SmartLockerKiosk
 
                 ConfirmedButton.IsEnabled = True
                 SetCallToAction(ConfirmedButton, True)
+
 
             Finally
                 _suspendStatusRefresh = False

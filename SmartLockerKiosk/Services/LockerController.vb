@@ -185,7 +185,33 @@ Public Class LockerControllerService
             End Try
         End SyncLock
     End Function
+    Public Function UnlockByLockerNumber(lockerNumber As String) As Boolean
+        Dim ln = (If(lockerNumber, "")).Trim()
+        If ln.Length = 0 Then Throw New ArgumentException("lockerNumber is required.", NameOf(lockerNumber))
 
+        Using db = DatabaseBootstrapper.BuildDbContext()
+            Dim locker = db.Lockers.AsNoTracking().
+            SingleOrDefault(Function(x) x.LockerNumber = ln)
+
+            If locker Is Nothing Then
+                Throw New InvalidOperationException($"Locker '{ln}' was not found.")
+            End If
+
+            If Not locker.IsEnabled Then
+                Throw New InvalidOperationException($"Locker '{ln}' is disabled.")
+            End If
+
+            If String.IsNullOrWhiteSpace(locker.Branch) Then
+                Throw New InvalidOperationException($"Locker '{ln}' has no branch assigned.")
+            End If
+
+            If locker.RelayId <= 0 Then
+                Throw New InvalidOperationException($"Locker '{ln}' has an invalid RelayId.")
+            End If
+
+            Return UnlockRelay(locker.Branch, locker.RelayId)
+        End Using
+    End Function
 
 
     ' ---------- Helpers ----------
@@ -235,5 +261,26 @@ Public Class LockerControllerService
             Try : s.Controller.Dispose() : Catch : End Try
         Next
     End Sub
+    Public Function TryGetLockerMapping(lockerNumber As String, ByRef branch As String, ByRef relayId As Integer) As Boolean
+        branch = Nothing
+        relayId = 0
+
+        Dim ln = (If(lockerNumber, "")).Trim()
+        If ln.Length = 0 Then Return False
+
+        Using db = DatabaseBootstrapper.BuildDbContext()
+            Dim locker = db.Lockers.AsNoTracking().
+                SingleOrDefault(Function(x) x.LockerNumber = ln)
+
+            If locker Is Nothing Then Return False
+            If Not locker.IsEnabled Then Return False
+            If String.IsNullOrWhiteSpace(locker.Branch) Then Return False
+            If locker.RelayId <= 0 Then Return False
+
+            branch = locker.Branch.Trim().ToUpperInvariant()
+            relayId = locker.RelayId
+            Return True
+        End Using
+    End Function
 
 End Class

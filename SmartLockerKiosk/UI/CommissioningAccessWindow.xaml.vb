@@ -1,31 +1,20 @@
-﻿Imports System.Linq
-Imports System.Net
-Imports System.Net.Http
-Imports System.Net.NetworkInformation
-Imports System.Net.Sockets
+﻿Imports System.Diagnostics
 Imports System.Reflection
-Imports System.Security.Authentication
 Imports System.Threading
-Imports System.Threading.Tasks
 Imports System.Windows
 Imports System.Windows.Controls
+Imports System.Windows.Media
 Imports System.Windows.Threading
 Imports Microsoft.EntityFrameworkCore
-Imports SmartLockerKiosk.SmartLockerKiosk
 
 Namespace SmartLockerKiosk
+
     Partial Public Class CommissioningAccessWindow
         Inherits Window
 
         Public Property ActorId As String
         Public Property KioskId As String
-        Private _lockerController As LockerControllerService
-        Private _networkOk As Boolean = False
-        Private _idValidated As Boolean = False
-        Private _commissioningToken As String = Nothing  ' optional: backend can return short-lived token
-        Private Const BackendBaseUrl As String = "https://smartlockerapp.azurewebsites.net"
-        Private Const HealthPath As String = "/api/health"  ' adjust to your real endpoint
-        Private Const NetworkTimeoutMs As Integer = 3000
+
         Public Property TenantId As String
         Public Property OrgNodeId As String
         Public Property CommissioningSessionId As String
@@ -35,45 +24,74 @@ Namespace SmartLockerKiosk
         Public Property SecondaryLogoUri As String
         Public Property AccentColor As String
 
-        Private ReadOnly _commissioningService As ICommissioningService
-
-        Private Const LocalBypassCommissioningCode As String = "12345"
-        Private Const EnableBackendCommissioning As Boolean = False
-
-        ' Network gating for Validate
+        Private _lockerController As LockerControllerService
+        Private _networkOk As Boolean = False
+        Private _backendReachable As Boolean = False
         Private _networkChecked As Boolean = False
         Private _internetOk As Boolean = False
-
-        ' If you want to allow offline commissioning, flip this to True (or pull from AppSettings)
-        Private Const AllowOfflineCommissioning As Boolean = False
-
-        ' Optional: store for UI display or audit
+        Private _idValidated As Boolean = False
+        Private _commissioningToken As String = Nothing
         Private _networkDiag As String = ""
 
         Private _restoreTopmostAfterSettings As Boolean = False
         Private _openingWifiSettings As Boolean = False
         Private _restoreTimer As DispatcherTimer = Nothing
-        Private _settingsProcess As Process = Nothing
+
+        Private _pulseTimer As DispatcherTimer = Nothing
+        Private _pulseTargetButton As Button = Nothing
+        Private _pulseIsOn As Boolean = False
+        Private _pulseNormalBrush As Brush = Nothing
+
+        Private ReadOnly _pulseHighlightBrush As Brush =
+            New SolidColorBrush(Color.FromRgb(255, 191, 0))
+
+        Private ReadOnly _commissioningService As ICommissioningService
+        Private ReadOnly _backendHealthService As IBackendHealthService
+
+        Private Const LocalBypassCommissioningCode As String = "12345"
+        Private Const EnableBackendCommissioning As Boolean = False
+        Private Const AllowOfflineCommissioning As Boolean = False
+
+        Private ReadOnly Property UseCommissioningBypass As Boolean
+            Get
+                Return TypeOf _commissioningService Is BypassCommissioningService
+            End Get
+        End Property
+
 
         Public Sub New()
             InitializeComponent()
 
+            Dim http As Net.Http.HttpClient = Nothing
+
+            If Not String.IsNullOrWhiteSpace(AppSettings.BaseApiUrl) Then
+                http = BackendHttpFactory.CreateHttpClient()
+                _backendHealthService = New BackendHealthService(http)
+            End If
+
             If EnableBackendCommissioning Then
-                _commissioningService = New BackendCommissioningService()
+                If http Is Nothing Then
+                    Throw New InvalidOperationException("BaseApiUrl must be configured before backend commissioning can be enabled.")
+                End If
+
+                _commissioningService = New BackendCommissioningService(http)
             Else
                 _commissioningService = New BypassCommissioningService(LocalBypassCommissioningCode)
             End If
         End Sub
+
         Private Sub Window_Loaded(sender As Object, e As RoutedEventArgs) Handles Me.Loaded
-            ' Clamp to the current screen so debug runs don't look weird
             Dim maxW = SystemParameters.WorkArea.Width
             Dim maxH = SystemParameters.WorkArea.Height
+
             If Me.Width > maxW Then Me.Width = maxW
             If Me.Height > maxH Then Me.Height = maxH
 
-            ' Safety: commissioning should only be reachable pre-commissioning
             Using db = DatabaseBootstrapper.BuildDbContext()
-                Dim row = db.KioskState.AsNoTracking().SingleOrDefault()
+                Dim row = db.KioskState.AsNoTracking().
+                    OrderByDescending(Function(x) x.LastUpdatedUtc).
+                    FirstOrDefault()
+
                 If row IsNot Nothing AndAlso row.IsCommissioned Then
                     MessageBox.Show("This kiosk is already commissioned.")
                     Application.Current.Shutdown()
@@ -81,73 +99,144 @@ Namespace SmartLockerKiosk
                 End If
             End Using
 
-            ' Initial UI state for the new workflow
             _networkChecked = False
             _internetOk = False
+            _backendReachable = False
             _networkOk = False
             _idValidated = False
+            _networkDiag = ""
 
             NetworkSummaryText.Text = "Network status: not checked."
             NetworksListBox.ItemsSource = Nothing
             ValidateButton.IsEnabled = False
 
-            StatusText.Text = "Step 1: Refresh Networks. Step 2: Enter Commissioning ID and Validate."
+            ShowWifiUi(False)
+            UpdateStepGuidance()
+
+            StatusText.Text = "Step 1: Check Connection. Step 2: Enter Commissioning ID and Validate."
         End Sub
+
         Private Async Sub CheckNetwork_Click(sender As Object, e As RoutedEventArgs)
             CheckNetworkButton.IsEnabled = False
             ValidateButton.IsEnabled = False
 
             _networkChecked = True
             _internetOk = False
+            _backendReachable = False
             _networkOk = False
             _networkDiag = ""
 
             Try
-                StatusText.Text = "Checking network…"
+                StatusText.Text = "Checking connection..."
 
                 Dim ethernetUp = IsEthernetUp()
                 Dim wifiPresent = IsWifiAdapterPresent()
+                Dim wifiConnected = IsWifiConnected()
+                Dim anyConnected = ethernetUp OrElse wifiConnected
 
-                ' Internet probe (fast)
-                _internetOk = Await ProbeInternetAsync()
+                ShowWifiUi(False)
+                NetworksListBox.ItemsSource = Nothing
 
-                ' Populate Wi-Fi list
-                Dim nets As List(Of WifiNetworkItem) = New List(Of WifiNetworkItem)()
-                If wifiPresent Then
-                    nets = GetWifiNetworksFromNetsh()
+                If anyConnected Then
+                    If _backendHealthService IsNot Nothing Then
+                        Dim health = Await _backendHealthService.CheckHealthAsync(CancellationToken.None)
+                        _backendReachable = health.Reachable
+                        _networkDiag = If(health.DiagnosticMessage, "")
+                    Else
+                        _backendReachable = False
+                        _networkDiag = "Backend URL not configured."
+                    End If
+
+                    _internetOk = Await ProbeInternetAsync()
+                Else
+                    _networkDiag = "No active Ethernet or Wi-Fi connection."
                 End If
 
-                NetworksListBox.ItemsSource = nets
-                If nets.Count > 0 Then NetworksListBox.SelectedIndex = 0
-
                 Dim ethText = If(ethernetUp, "Ethernet: Connected", "Ethernet: Not connected")
-                Dim wifiText = If(wifiPresent, $"Wi-Fi: Available ({nets.Count} found)", "Wi-Fi: Not present")
-                Dim netText = If(_internetOk, "Internet: OK", "Internet: Not reachable")
 
-                NetworkSummaryText.Text = $"{ethText}  |  {wifiText}  |  {netText}"
+                Dim wifiText As String
+                If wifiConnected Then
+                    wifiText = "Wi-Fi: Connected"
+                ElseIf wifiPresent Then
+                    wifiText = "Wi-Fi: Available"
+                Else
+                    wifiText = "Wi-Fi: Not present"
+                End If
 
-                ' Decide what "network ok" means for commissioning
-                _networkOk = _internetOk OrElse AllowOfflineCommissioning
+                Dim backendText = If(_backendReachable, "Backend: Reachable", "Backend: Not reachable")
+                Dim internetText = If(_internetOk, "Internet: OK", "Internet: Not reachable")
 
+                _networkOk = _backendReachable OrElse AllowOfflineCommissioning OrElse UseCommissioningBypass
                 ValidateButton.IsEnabled = _networkOk
 
-                If _networkOk Then
-                    StatusText.Text = "Network check complete. Enter Commissioning ID, then Validate."
+                If Not anyConnected Then
+                    ShowWifiUi(wifiPresent)
+
+                    If wifiPresent Then
+                        Dim nets As List(Of WifiNetworkItem) = GetWifiNetworksFromNetsh()
+                        NetworksListBox.ItemsSource = nets
+                        If nets.Count > 0 Then NetworksListBox.SelectedIndex = 0
+
+                        NetworkSummaryText.Text = $"{ethText}  |  Wi-Fi: Available ({nets.Count} found)  |  {backendText}  |  {internetText}"
+                        StatusText.Text = "No network connection detected. Connect Ethernet or Wi-Fi, then check again."
+                    Else
+                        NetworkSummaryText.Text = $"{ethText}  |  {wifiText}  |  {backendText}  |  {internetText}"
+                        StatusText.Text = "No network connection detected. Connect Ethernet and check again."
+                    End If
+
                 Else
-                    StatusText.Text = "Internet not reachable. Connect to Wi-Fi/Ethernet (Open Wi-Fi Settings), then Refresh Networks."
+                    NetworkSummaryText.Text = $"{ethText}  |  {wifiText}  |  {backendText}  |  {internetText}"
+
+                    If _backendReachable Then
+                        ShowWifiUi(False)
+                        StatusText.Text = "Backend reachable. Enter Commissioning ID, then Validate."
+                    Else
+                        ShowWifiUi(wifiPresent)
+
+                        If wifiPresent Then
+                            Dim nets As List(Of WifiNetworkItem) = GetWifiNetworksFromNetsh()
+                            NetworksListBox.ItemsSource = nets
+                            If nets.Count > 0 Then NetworksListBox.SelectedIndex = 0
+                        End If
+
+                        If String.IsNullOrWhiteSpace(AppSettings.BaseApiUrl) AndAlso UseCommissioningBypass Then
+                            StatusText.Text = "Backend URL is not configured, but test mode allows you to continue."
+                        ElseIf UseCommissioningBypass Then
+                            StatusText.Text = "Backend not reachable, but test mode allows you to continue."
+                        ElseIf AllowOfflineCommissioning Then
+                            StatusText.Text = "Backend not reachable, but offline commissioning is allowed."
+                        Else
+                            If String.IsNullOrWhiteSpace(AppSettings.BaseApiUrl) Then
+                                StatusText.Text = "Backend URL is not configured. Configure the backend address, then check again."
+                            ElseIf Not String.IsNullOrWhiteSpace(_networkDiag) Then
+                                StatusText.Text = $"Backend is not reachable. {_networkDiag}"
+                            ElseIf Not _internetOk Then
+                                StatusText.Text = "Network connection detected, but backend is not reachable. Verify backend address, server availability, and connectivity, then check again."
+                            Else
+                                StatusText.Text = "Backend is not reachable. Verify backend address and server availability, then check again."
+                            End If
+                        End If
+                    End If
                 End If
 
             Catch ex As Exception
                 NetworkSummaryText.Text = "Network status: error."
                 NetworksListBox.ItemsSource = Nothing
-                _networkOk = AllowOfflineCommissioning
+                ShowWifiUi(False)
+
+                _backendReachable = False
+                _networkOk = AllowOfflineCommissioning OrElse UseCommissioningBypass
                 ValidateButton.IsEnabled = _networkOk
-                StatusText.Text = "Network check failed: " & ex.Message
+                _networkDiag = ex.Message
+
+                StatusText.Text = "Connection check failed: " & ex.Message
 
             Finally
                 CheckNetworkButton.IsEnabled = True
+                UpdateStepGuidance()
             End Try
         End Sub
+
         Private Async Sub OpenWifiSettings_Click(sender As Object, e As RoutedEventArgs)
             If _openingWifiSettings Then Return
             _openingWifiSettings = True
@@ -155,48 +244,54 @@ Namespace SmartLockerKiosk
             Try
                 _restoreTopmostAfterSettings = Me.Topmost
 
-                ' Drop Topmost and minimize so Settings can be seen
                 Me.Topmost = False
-                Me.WindowState = WindowState.Normal       ' ensure visible
+                Me.WindowState = WindowState.Normal
 
-                ' Launch Wi-Fi settings (do NOT rely on Process object for ms-settings URIs)
-                Dim psi As New ProcessStartInfo("ms-settings:network-wifi") With {.UseShellExecute = True}
+                Dim psi As New ProcessStartInfo("ms-settings:network-wifi") With {
+                    .UseShellExecute = True
+                }
                 Process.Start(psi)
 
-                ' Failsafe restore monitor (restores after N seconds even if Settings can't be tracked)
                 StartRestoreMonitor()
 
                 Await Task.Delay(350)
 
             Catch ex As Exception
                 StatusText.Text = "Unable to open Wi-Fi settings: " & ex.Message
+
                 Try
                     Me.WindowState = WindowState.Normal
                     Me.Topmost = True
                 Catch
                 End Try
+
             Finally
                 _openingWifiSettings = False
             End Try
         End Sub
+
         Private Sub NetworksListBox_SelectionChanged(sender As Object, e As SelectionChangedEventArgs)
             Dim sel = TryCast(NetworksListBox.SelectedItem, WifiNetworkItem)
             If sel Is Nothing Then Return
 
-            StatusText.Text = $"Selected Wi-Fi: {sel.Ssid}. Use Open Wi-Fi Settings to connect if needed."
+            StatusText.Text = $"Selected Wi-Fi network: {sel.Ssid}. Open Wi-Fi Settings to connect."
         End Sub
+
         Private Function IsEthernetUp() As Boolean
             Try
                 For Each ni In System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
                     If ni.OperationalStatus <> System.Net.NetworkInformation.OperationalStatus.Up Then Continue For
+
                     If ni.NetworkInterfaceType = System.Net.NetworkInformation.NetworkInterfaceType.Ethernet Then
                         Return True
                     End If
                 Next
             Catch
             End Try
+
             Return False
         End Function
+
         Private Function IsWifiAdapterPresent() As Boolean
             Try
                 For Each ni In System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
@@ -206,13 +301,29 @@ Namespace SmartLockerKiosk
                 Next
             Catch
             End Try
+
             Return False
         End Function
+
+        Private Function IsWifiConnected() As Boolean
+            Try
+                For Each ni In System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
+                    If ni.OperationalStatus <> System.Net.NetworkInformation.OperationalStatus.Up Then Continue For
+
+                    If ni.NetworkInterfaceType = System.Net.NetworkInformation.NetworkInterfaceType.Wireless80211 Then
+                        Return True
+                    End If
+                Next
+            Catch
+            End Try
+
+            Return False
+        End Function
+
         Private Async Function ProbeInternetAsync() As Task(Of Boolean)
             Try
                 Using client As New Net.Http.HttpClient()
                     client.Timeout = TimeSpan.FromSeconds(2.5)
-                    ' Lightweight connectivity check (no big download)
                     Dim resp = Await client.GetAsync("http://www.msftconnecttest.com/connecttest.txt")
                     Return resp.IsSuccessStatusCode
                 End Using
@@ -220,15 +331,16 @@ Namespace SmartLockerKiosk
                 Return False
             End Try
         End Function
+
         Private Function GetWifiNetworksFromNetsh() As List(Of WifiNetworkItem)
             Dim results As New List(Of WifiNetworkItem)()
 
             Dim psi As New ProcessStartInfo("netsh", "wlan show networks mode=bssid") With {
-        .RedirectStandardOutput = True,
-        .RedirectStandardError = True,
-        .UseShellExecute = False,
-        .CreateNoWindow = True
-    }
+                .RedirectStandardOutput = True,
+                .RedirectStandardError = True,
+                .UseShellExecute = False,
+                .CreateNoWindow = True
+            }
 
             Dim output As String = ""
             Using p As Process = Process.Start(psi)
@@ -236,7 +348,6 @@ Namespace SmartLockerKiosk
                 p.WaitForExit(3000)
             End Using
 
-            ' Parse blocks: "SSID n : <name>", then "Signal : xx%", "Authentication : <type>"
             Dim lines = output.Split({vbCrLf, vbLf}, StringSplitOptions.RemoveEmptyEntries)
 
             Dim currentSsid As String = Nothing
@@ -247,13 +358,12 @@ Namespace SmartLockerKiosk
                 Dim line = raw.Trim()
 
                 If line.StartsWith("SSID ", StringComparison.OrdinalIgnoreCase) AndAlso line.Contains(":") Then
-                    ' Commit previous
                     If Not String.IsNullOrWhiteSpace(currentSsid) Then
                         results.Add(New WifiNetworkItem With {
-                    .Ssid = currentSsid,
-                    .SignalText = If(currentSignal, ""),
-                    .SecurityText = If(currentAuth, "")
-                })
+                            .Ssid = currentSsid,
+                            .SignalText = If(currentSignal, ""),
+                            .SecurityText = If(currentAuth, "")
+                        })
                     End If
 
                     currentSsid = line.Substring(line.IndexOf(":"c) + 1).Trim()
@@ -262,62 +372,78 @@ Namespace SmartLockerKiosk
                     Continue For
                 End If
 
-                If line.StartsWith("Signal", StringComparison.OrdinalIgnoreCase) AndAlso line.Contains(":") AndAlso currentSignal Is Nothing Then
+                If line.StartsWith("Signal", StringComparison.OrdinalIgnoreCase) AndAlso
+                   line.Contains(":") AndAlso
+                   currentSignal Is Nothing Then
+
                     currentSignal = line.Substring(line.IndexOf(":"c) + 1).Trim()
                     Continue For
                 End If
 
-                If line.StartsWith("Authentication", StringComparison.OrdinalIgnoreCase) AndAlso line.Contains(":") AndAlso currentAuth Is Nothing Then
+                If line.StartsWith("Authentication", StringComparison.OrdinalIgnoreCase) AndAlso
+                   line.Contains(":") AndAlso
+                   currentAuth Is Nothing Then
+
                     currentAuth = line.Substring(line.IndexOf(":"c) + 1).Trim()
                     Continue For
                 End If
             Next
 
-            ' Commit last
             If Not String.IsNullOrWhiteSpace(currentSsid) Then
                 results.Add(New WifiNetworkItem With {
-            .Ssid = currentSsid,
-            .SignalText = If(currentSignal, ""),
-            .SecurityText = If(currentAuth, "")
-        })
+                    .Ssid = currentSsid,
+                    .SignalText = If(currentSignal, ""),
+                    .SecurityText = If(currentAuth, "")
+                })
             End If
 
-            ' Clean up: remove blank SSIDs, de-dupe by name, sort
-            results = results.Where(Function(x) Not String.IsNullOrWhiteSpace(x.Ssid)).
-                      GroupBy(Function(x) x.Ssid, StringComparer.OrdinalIgnoreCase).
-                      Select(Function(g) g.First()).
-                      OrderByDescending(Function(x) ParseSignalPercent(x.SignalText)).
-                      ThenBy(Function(x) x.Ssid, StringComparer.OrdinalIgnoreCase).
-                      ToList()
+            results = results.
+                Where(Function(x) Not String.IsNullOrWhiteSpace(x.Ssid)).
+                GroupBy(Function(x) x.Ssid, StringComparer.OrdinalIgnoreCase).
+                Select(Function(g) g.First()).
+                OrderByDescending(Function(x) ParseSignalPercent(x.SignalText)).
+                ThenBy(Function(x) x.Ssid, StringComparer.OrdinalIgnoreCase).
+                ToList()
 
             Return results
         End Function
+
         Private Function ParseSignalPercent(signalText As String) As Integer
             If String.IsNullOrWhiteSpace(signalText) Then Return 0
+
             Dim s = signalText.Replace("%", "").Trim()
             Dim n As Integer
+
             If Integer.TryParse(s, n) Then Return n
             Return 0
         End Function
+
+        Private Sub ShowWifiUi(show As Boolean)
+            WifiSectionPanel.Visibility = If(show, Visibility.Visible, Visibility.Collapsed)
+            OpenWifiSettingsButton.Visibility = If(show, Visibility.Visible, Visibility.Collapsed)
+
+            If Not show Then
+                NetworksListBox.ItemsSource = Nothing
+            End If
+        End Sub
+
         Private Sub Window_Activated(sender As Object, e As EventArgs) Handles Me.Activated
-            ' If we minimized for Settings, bring back to normal
             If Me.WindowState = WindowState.Minimized Then
                 Me.WindowState = WindowState.Normal
             End If
 
-            ' Restore Topmost once, when returning from Settings
             If _restoreTopmostAfterSettings Then
                 Me.Topmost = True
                 _restoreTopmostAfterSettings = False
             End If
 
-            ' Ensure we actually take focus again
             Try
                 Me.Activate()
                 Me.Focus()
             Catch
             End Try
         End Sub
+
         Private Sub StartRestoreMonitor()
             If _restoreTimer IsNot Nothing Then
                 _restoreTimer.Stop()
@@ -330,24 +456,23 @@ Namespace SmartLockerKiosk
             _restoreTimer.Interval = TimeSpan.FromMilliseconds(500)
 
             AddHandler _restoreTimer.Tick,
-        Sub()
-            ' If we are already back, stop monitoring
-            If Me.WindowState <> WindowState.Minimized Then
-                _restoreTimer.Stop()
-                _restoreTimer = Nothing
-                Return
-            End If
+                Sub()
+                    If Me.WindowState <> WindowState.Minimized Then
+                        _restoreTimer.Stop()
+                        _restoreTimer = Nothing
+                        Return
+                    End If
 
-            ' Hard failsafe: restore after 15 seconds no matter what
-            If (DateTime.UtcNow - startedUtc) > TimeSpan.FromSeconds(15) Then
-                _restoreTimer.Stop()
-                _restoreTimer = Nothing
-                RestoreFromSettings()
-            End If
-        End Sub
+                    If (DateTime.UtcNow - startedUtc) > TimeSpan.FromSeconds(15) Then
+                        _restoreTimer.Stop()
+                        _restoreTimer = Nothing
+                        RestoreFromSettings()
+                    End If
+                End Sub
 
             _restoreTimer.Start()
         End Sub
+
         Private Sub RestoreFromSettings()
             Try
                 If Me.WindowState = WindowState.Minimized Then
@@ -360,26 +485,30 @@ Namespace SmartLockerKiosk
                 Me.Activate()
                 Me.Focus()
 
-                StatusText.Text = "Back from Wi-Fi Settings. Press Refresh Networks."
+                StatusText.Text = "Back from Wi-Fi Settings. Press Check Connection."
             Catch
             End Try
         End Sub
+
         Private Sub Window_Deactivated(sender As Object, e As EventArgs) Handles Me.Deactivated
-            ' Soft-nudge only; don't fight too hard or you'll annoy installers.
-            StatusText.Text = "Finish Wi-Fi setup, then return here and press Refresh Networks."
+            If WifiSectionPanel.Visibility = Visibility.Visible Then
+                StatusText.Text = "Finish network setup, then return here and press Check Connection."
+            End If
         End Sub
+
         Private Async Sub Validate_Click(sender As Object, e As RoutedEventArgs)
             If Not _networkChecked AndAlso Not AllowOfflineCommissioning Then
-                StatusText.Text = "Please run Refresh Networks first."
+                StatusText.Text = "Please run Check Connection first."
                 Return
             End If
 
             If (Not _networkOk) AndAlso Not AllowOfflineCommissioning Then
-                StatusText.Text = "Network not ready. Connect to Wi-Fi/Ethernet, then Refresh Networks."
+                StatusText.Text = "Connection not ready. Correct the network issue, then press Check Connection again."
                 Return
             End If
 
             Dim id = (If(CommissioningIdTextBox.Text, "")).Trim()
+
             If id.Length = 0 Then
                 StatusText.Text = "Enter Commissioning ID."
                 Return
@@ -393,6 +522,7 @@ Namespace SmartLockerKiosk
 
             ValidateButton.IsEnabled = False
             CheckNetworkButton.IsEnabled = False
+            StopButtonPulse()
 
             Try
                 StatusText.Text = "Validating Commissioning ID..."
@@ -429,7 +559,6 @@ Namespace SmartLockerKiosk
                     Return
                 End If
 
-                ' Capture returned context for later commissioning steps
                 _idValidated = True
                 _commissioningToken = result.Data.commissioningToken
 
@@ -438,8 +567,8 @@ Namespace SmartLockerKiosk
                 TenantId = result.Data.tenantId
                 OrgNodeId = result.Data.orgNodeId
                 CommissioningSessionId = result.Data.commissioningSessionId
-
                 KioskName = result.Data.kioskName
+
                 If result.Data.branding IsNot Nothing Then
                     OrganizationName = result.Data.branding.organizationName
                     LogoUri = result.Data.branding.logoUri
@@ -457,8 +586,10 @@ Namespace SmartLockerKiosk
             Finally
                 ValidateButton.IsEnabled = _networkOk
                 CheckNetworkButton.IsEnabled = True
+                UpdateStepGuidance()
             End Try
         End Sub
+
         Private Async Sub GoToControllerSetup()
             If Not _networkOk AndAlso Not AllowOfflineCommissioning Then
                 StatusText.Text = "Network not ready. Complete Step 1 first."
@@ -472,13 +603,14 @@ Namespace SmartLockerKiosk
 
             Dim effectiveActorId = If(String.IsNullOrWhiteSpace(ActorId), "System:Commissioning", ActorId)
 
-            ' 1) Ports setup
             Try
                 StatusText.Text = "Opening Controller Setup..."
 
                 Dim portsWin As New ControllerSetupWindow() With {
-            .ActorId = effectiveActorId
-        }
+                    .ActorId = effectiveActorId,
+                    .IsCommissioningMode = True
+                }
+
                 portsWin.Owner = Me
                 portsWin.WindowStartupLocation = WindowStartupLocation.CenterOwner
                 portsWin.Topmost = True
@@ -497,11 +629,10 @@ Namespace SmartLockerKiosk
                 Return
             End Try
 
-            ' 2) Ensure Branch A is configured
             Dim aPort As String = Nothing
             Using db = DatabaseBootstrapper.BuildDbContext()
                 aPort = db.ControllerPorts.AsNoTracking().
-            SingleOrDefault(Function(r) r.BranchName = "A")?.PortName
+                    SingleOrDefault(Function(r) r.BranchName = "A")?.PortName
             End Using
 
             If String.IsNullOrWhiteSpace(aPort) Then
@@ -513,11 +644,11 @@ Namespace SmartLockerKiosk
                 _lockerController = New LockerControllerService()
             End If
 
-            ' 3) Locker commissioning
             Dim lockerWin As New LockerCommissioningWindow(_lockerController) With {
-        .ActorId = effectiveActorId,
-        .KioskId = KioskId
-    }
+                .ActorId = effectiveActorId,
+                .KioskId = KioskId
+            }
+
             lockerWin.Owner = Me
             lockerWin.WindowStartupLocation = WindowStartupLocation.CenterOwner
 
@@ -529,7 +660,6 @@ Namespace SmartLockerKiosk
 
             StatusText.Text = "Local commissioning complete. Registering kiosk health..."
 
-            ' 4) Register commissioning health
             Dim appVersion As String = ""
             Try
                 appVersion = Assembly.GetExecutingAssembly().GetName().Version.ToString()
@@ -538,28 +668,28 @@ Namespace SmartLockerKiosk
             End Try
 
             Dim healthRequest As New RegisterCommissioningHealthRequest With {
-        .commissioningSessionId = CommissioningSessionId,
-        .kioskId = KioskId,
-        .tenantId = TenantId,
-        .orgNodeId = OrgNodeId,
-        .deviceInfo = New CommissioningDeviceInfo With {
-            .machineName = Environment.MachineName,
-            .deviceName = If(KioskName, ""),
-            .osVersion = Environment.OSVersion.ToString(),
-            .appVersion = appVersion,
-            .hardwareFingerprint = Nothing
-        },
-        .networkStatus = New CommissioningNetworkStatusDTO With {
-            .internetReachable = _internetOk,
-            .backendReachable = _networkOk
-        },
-        .healthStatus = New CommissioningHealthStatusDTO With {
-            .applicationStarted = True,
-            .localDatabaseInitialized = True,
-            .keypadAvailable = True
-        },
-        .reportedAtUtc = DateTime.UtcNow
-    }
+                .commissioningSessionId = CommissioningSessionId,
+                .kioskId = KioskId,
+                .tenantId = TenantId,
+                .orgNodeId = OrgNodeId,
+                .deviceInfo = New CommissioningDeviceInfo With {
+                    .machineName = Environment.MachineName,
+                    .deviceName = If(KioskName, ""),
+                    .osVersion = Environment.OSVersion.ToString(),
+                    .appVersion = appVersion,
+                    .hardwareFingerprint = Nothing
+                },
+                .networkStatus = New CommissioningNetworkStatusDTO With {
+                    .internetReachable = _internetOk,
+                    .backendReachable = _backendReachable
+                },
+                .healthStatus = New CommissioningHealthStatusDTO With {
+                    .applicationStarted = True,
+                    .localDatabaseInitialized = True,
+                    .keypadAvailable = True
+                },
+                .reportedAtUtc = DateTime.UtcNow
+            }
 
             Dim healthResult As ApiResult(Of RegisterCommissioningHealthResponse) = Nothing
 
@@ -586,27 +716,26 @@ Namespace SmartLockerKiosk
 
             StatusText.Text = "Health registered. Finalizing commissioning..."
 
-            ' 5) Finalize commissioning
             Dim finalizeRequest As New FinalizeCommissioningRequest With {
-        .commissioningSessionId = CommissioningSessionId,
-        .kioskId = KioskId,
-        .tenantId = TenantId,
-        .orgNodeId = OrgNodeId,
-        .actorId = ActorId,
-        .deviceInfo = New CommissioningDeviceInfo With {
-            .machineName = Environment.MachineName,
-            .deviceName = If(KioskName, ""),
-            .osVersion = Environment.OSVersion.ToString(),
-            .appVersion = appVersion,
-            .hardwareFingerprint = Nothing
-        },
-        .commissioningResult = New FinalizeCommissioningResultDTO With {
-            .controllerSetupCompleted = True,
-            .lockerMappingCompleted = True,
-            .healthRegistrationCompleted = True,
-            .localDatabaseInitialized = True
-        }
-    }
+                .commissioningSessionId = CommissioningSessionId,
+                .kioskId = KioskId,
+                .tenantId = TenantId,
+                .orgNodeId = OrgNodeId,
+                .actorId = ActorId,
+                .deviceInfo = New CommissioningDeviceInfo With {
+                    .machineName = Environment.MachineName,
+                    .deviceName = If(KioskName, ""),
+                    .osVersion = Environment.OSVersion.ToString(),
+                    .appVersion = appVersion,
+                    .hardwareFingerprint = Nothing
+                },
+                .commissioningResult = New FinalizeCommissioningResultDTO With {
+                    .controllerSetupCompleted = True,
+                    .lockerMappingCompleted = True,
+                    .healthRegistrationCompleted = True,
+                    .localDatabaseInitialized = True
+                }
+            }
 
             Dim finalizeResult As ApiResult(Of FinalizeCommissioningResponse) = Nothing
 
@@ -631,15 +760,14 @@ Namespace SmartLockerKiosk
                 Return
             End If
 
-            ' 6) Persist final commissioned state locally
             Try
                 Using db = DatabaseBootstrapper.BuildDbContext()
                     Dim ks = db.KioskState.SingleOrDefault(Function(x) x.KioskId = KioskId)
 
                     If ks Is Nothing Then
                         ks = New KioskState With {
-                    .KioskId = KioskId
-                }
+                            .KioskId = KioskId
+                        }
                         db.KioskState.Add(ks)
                     End If
 
@@ -668,13 +796,68 @@ Namespace SmartLockerKiosk
                 Return
             End Try
 
+            StopButtonPulse()
             StatusText.Text = "Commissioning finalized successfully."
-            Me.DialogResult = True
-            Me.Close()
-        End Sub
-        Private Sub Cancel_Click(sender As Object, e As RoutedEventArgs)
             Me.Close()
         End Sub
 
+        Private Sub Cancel_Click(sender As Object, e As RoutedEventArgs)
+            StopButtonPulse()
+            Me.Close()
+        End Sub
+
+        Private Sub StartButtonPulse(target As Button)
+            If target Is Nothing Then Return
+
+            If Object.ReferenceEquals(_pulseTargetButton, target) AndAlso _pulseTimer IsNot Nothing Then
+                Return
+            End If
+
+            StopButtonPulse()
+
+            _pulseTargetButton = target
+            _pulseNormalBrush = target.Background
+            _pulseIsOn = False
+
+            _pulseTimer = New DispatcherTimer()
+            _pulseTimer.Interval = TimeSpan.FromMilliseconds(750)
+
+            AddHandler _pulseTimer.Tick,
+                Sub()
+                    If _pulseTargetButton Is Nothing Then Return
+
+                    _pulseIsOn = Not _pulseIsOn
+                    _pulseTargetButton.Background = If(_pulseIsOn, _pulseHighlightBrush, _pulseNormalBrush)
+                End Sub
+
+            _pulseTimer.Start()
+        End Sub
+
+        Private Sub StopButtonPulse()
+            If _pulseTimer IsNot Nothing Then
+                _pulseTimer.Stop()
+                _pulseTimer = Nothing
+            End If
+
+            If _pulseTargetButton IsNot Nothing AndAlso _pulseNormalBrush IsNot Nothing Then
+                _pulseTargetButton.Background = _pulseNormalBrush
+            End If
+
+            _pulseTargetButton = Nothing
+            _pulseNormalBrush = Nothing
+            _pulseIsOn = False
+        End Sub
+
+        Private Sub UpdateStepGuidance()
+            If Not _networkOk Then
+                StartButtonPulse(CheckNetworkButton)
+            ElseIf Not _idValidated Then
+                StartButtonPulse(ValidateButton)
+            Else
+                StopButtonPulse()
+            End If
+        End Sub
+
     End Class
+
 End Namespace

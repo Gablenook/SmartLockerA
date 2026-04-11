@@ -585,6 +585,7 @@ Namespace SmartLockerKiosk
         End Function
         Private Sub Confirmed_Click(sender As Object, e As RoutedEventArgs) Handles ConfirmedButton.Click
             HighlightStep(4)
+
             If _confirmed OrElse _saved Then
                 StatusText.Text = "Already saved."
                 Return
@@ -597,29 +598,36 @@ Namespace SmartLockerKiosk
                 End If
 
                 ' Validate: Branch must exist
-                Dim badBranch = _assignments.Where(Function(x) String.IsNullOrWhiteSpace(x.Branch) OrElse
-                                                     (x.Branch.Trim().ToUpperInvariant() <> "A" AndAlso x.Branch.Trim().ToUpperInvariant() <> "B")).
-                                    ToList()
+                Dim badBranch = _assignments.
+            Where(Function(x) String.IsNullOrWhiteSpace(x.Branch) OrElse
+                              (x.Branch.Trim().ToUpperInvariant() <> "A" AndAlso
+                               x.Branch.Trim().ToUpperInvariant() <> "B")).
+            ToList()
+
                 If badBranch.Any() Then
                     StatusText.Text = "Cannot save: one or more assignments missing/invalid Branch."
                     Return
                 End If
 
                 ' Validate: no duplicate locker tags
-                Dim dupTags = _assignments.GroupBy(Function(x) x.LockerTag).
-                                  Where(Function(g) g.Count() > 1).
-                                  Select(Function(g) g.Key).
-                                  ToList()
+                Dim dupTags = _assignments.
+            GroupBy(Function(x) x.LockerTag).
+            Where(Function(g) g.Count() > 1).
+            Select(Function(g) g.Key).
+            ToList()
+
                 If dupTags.Any() Then
                     StatusText.Text = "Cannot save: duplicate LockerTag(s): " & String.Join(", ", dupTags)
                     Return
                 End If
 
                 ' Validate: no duplicate (branch, relayId)
-                Dim dupRelays = _assignments.GroupBy(Function(x) RelayKey(x.Branch.Trim().ToUpperInvariant(), x.RelayId)).
-                                    Where(Function(g) g.Count() > 1).
-                                    Select(Function(g) g.Key).
-                                    ToList()
+                Dim dupRelays = _assignments.
+            GroupBy(Function(x) RelayKey(x.Branch.Trim().ToUpperInvariant(), x.RelayId)).
+            Where(Function(g) g.Count() > 1).
+            Select(Function(g) g.Key).
+            ToList()
+
                 If dupRelays.Any() Then
                     StatusText.Text = "Cannot save: duplicate relay assignment(s): " & String.Join(", ", dupRelays)
                     Return
@@ -642,18 +650,21 @@ Namespace SmartLockerKiosk
 
                         For Each a In _assignments.OrderBy(Function(x) x.LockerTag)
                             Dim row As New Locker With {
-                                .LockerNumber = a.LockerTag.ToString(),
-                                .RelayId = a.RelayId,
-                                .Branch = a.Branch.Trim().ToUpperInvariant(),
-                                .Zone = "DEFAULT",
-                                .SizeCode = a.SizeCode,
-                                .IsEnabled = True,
-                                .Status = New LockerStatus With {
-                                    .LockState = LockState.Unknown,
-                                    .OccupancyState = OccupancyState.Unknown,
-                                    .LastUpdatedUtc = nowUtc
-                                }
-                            }
+                        .LockerNumber = a.LockerTag.ToString(),
+                        .RelayId = a.RelayId,
+                        .Branch = a.Branch.Trim().ToUpperInvariant(),
+                        .Zone = "DEFAULT",
+                        .SizeCode = a.SizeCode,
+                        .IsEnabled = True,
+                        .Status = New LockerStatus With {
+    .LockState = LockState.Closed,
+    .OccupancyState = OccupancyState.Vacant,
+    .PackagePresent = False,
+    .ReservedUntilUtc = Nothing,
+    .ReservedWorkOrderNumber = Nothing,
+    .LastUpdatedUtc = nowUtc
+}
+                    }
 
                             db.Lockers.Add(row)
                             newLockers.Add(row)
@@ -663,17 +674,46 @@ Namespace SmartLockerKiosk
 
                         db.SaveChanges()
 
-                        Dim ks = db.KioskState.SingleOrDefault(Function(x) x.KioskId = kioskId)
+                        ' Mark kiosk as commissioned
+                        Dim ks = db.KioskState.
+                    OrderByDescending(Function(x) x.LastUpdatedUtc).
+                    FirstOrDefault(Function(x) x.KioskId = kioskId)
+
+                        If ks Is Nothing Then
+                            ks = db.KioskState.
+                        OrderByDescending(Function(x) x.LastUpdatedUtc).
+                        FirstOrDefault()
+                        End If
+
                         If ks Is Nothing Then
                             ks = New KioskState With {
-                                .KioskId = kioskId,
-                                .LocationId = AppSettings.LocationId,
-                                .IsCommissioned = False,
-                                .LastUpdatedUtc = DateTime.UtcNow
-                            }
+                        .KioskId = kioskId,
+                        .LocationId = AppSettings.LocationId,
+                        .IsCommissioned = True,
+                        .CommissionedUtc = nowUtc,
+                        .CommissionedBy = If(String.IsNullOrWhiteSpace(ActorId), "LOCAL-COMMISSIONING", ActorId),
+                        .LastUpdatedUtc = nowUtc
+                    }
                             db.KioskState.Add(ks)
                         Else
-                            ks.LastUpdatedUtc = DateTime.UtcNow
+                            If String.IsNullOrWhiteSpace(ks.KioskId) Then
+                                ks.KioskId = kioskId
+                            End If
+
+                            If String.IsNullOrWhiteSpace(ks.LocationId) Then
+                                ks.LocationId = AppSettings.LocationId
+                            End If
+
+                            ks.IsCommissioned = True
+                            If Not ks.CommissionedUtc.HasValue Then
+                                ks.CommissionedUtc = nowUtc
+                            End If
+
+                            If String.IsNullOrWhiteSpace(ks.CommissionedBy) Then
+                                ks.CommissionedBy = If(String.IsNullOrWhiteSpace(ActorId), "LOCAL-COMMISSIONING", ActorId)
+                            End If
+
+                            ks.LastUpdatedUtc = nowUtc
                         End If
 
                         db.SaveChanges()
@@ -716,7 +756,6 @@ Namespace SmartLockerKiosk
 
                 ConfirmedButton.IsEnabled = True
                 SetCallToAction(ConfirmedButton, True)
-
 
             Finally
                 _suspendStatusRefresh = False
@@ -894,14 +933,12 @@ Namespace SmartLockerKiosk
                 End Try
 
                 StatusText.Text = "Stopping Open All…"
-                Await Task.Delay(150) ' brief yield so cancellation can propagate
+                Await Task.Delay(150)
             End If
 
-            ' Decide which scenario we are in
             Dim workflowComplete As Boolean = (_confirmed OrElse _saved)
 
             If Not workflowComplete Then
-                ' Scenario 1: leaving early => commissioning failed / incomplete
                 Dim result = MessageBox.Show(
             "Locker commissioning is not complete (not confirmed/saved)." & Environment.NewLine &
             "Yes = go back to Controller Assignment" & Environment.NewLine &
@@ -913,18 +950,15 @@ Namespace SmartLockerKiosk
                 If result = MessageBoxResult.Cancel Then Return
 
                 If result = MessageBoxResult.Yes Then
-                    ' Step back in workflow
                     RaiseEvent ExitRequested(CommissioningExitMode.BackToControllerAssignment)
                     Me.Close()
                     Return
                 Else
-                    ' Abort commissioning completely
                     RaiseEvent ExitRequested(CommissioningExitMode.AbortCommissioning)
                     Me.Close()
                     Return
                 End If
             Else
-                ' Scenario 2: confirmed/saved => proceed to next step
                 Dim result = MessageBox.Show(
             "Proceed to the next commissioning step?",
             "Continue",
@@ -935,8 +969,8 @@ Namespace SmartLockerKiosk
 
                 RaiseEvent ExitRequested(CommissioningExitMode.ContinueToNextStep)
                 Me.Close()
+                Return
             End If
-            HighlightStep(5)
         End Sub
         Private Sub HighlightStep(stepNumber As Integer)
 

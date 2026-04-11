@@ -13,6 +13,7 @@ Public Enum OccupancyState
     Occupied = 2
     Unavailable = 3
     OutOfService = 4
+    Reserved = 5
 End Enum
 
 Public Class LockerStatus

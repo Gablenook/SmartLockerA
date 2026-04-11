@@ -37,132 +37,135 @@
                    Margin="0,0,0,10"/>
 
         <!-- =========================
-             STEP 1 — NETWORK
-             ========================= -->
+     STEP 1 — NETWORK
+     ========================= -->
         <Border Grid.Row="2"
-                Background="#0F3A6B"
-                CornerRadius="18"
-                Padding="24">
+        Background="#0F3A6B"
+        CornerRadius="18"
+        Padding="24">
             <StackPanel>
 
                 <TextBlock Text="Step 1 — Network"
-                           Foreground="White"
-                           FontSize="26"
-                           FontWeight="SemiBold"
-                           Margin="0,0,0,12"/>
+                   Foreground="White"
+                   FontSize="26"
+                   FontWeight="SemiBold"
+                   Margin="0,0,0,12"/>
 
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,14">
                     <Button x:Name="CheckNetworkButton"
-                            Content="Refresh Networks"
-                            Width="240"
-                            Height="60"
-                            FontSize="20"
-                            Click="CheckNetwork_Click"
-                            Margin="0,0,12,0"/>
+                    Content="Check Connection"
+                    Width="240"
+                    Height="60"
+                    FontSize="20"
+                    Click="CheckNetwork_Click"
+                    Margin="0,0,12,0"/>
 
                     <Button x:Name="OpenWifiSettingsButton"
-                            Content="Open Wi-Fi Settings"
-                            Width="240"
-                            Height="60"
-                            FontSize="20"
-                            Click="OpenWifiSettings_Click"/>
+                    Content="Open Wi-Fi Settings"
+                    Width="240"
+                    Height="60"
+                    FontSize="20"
+                    Click="OpenWifiSettings_Click"
+                    Visibility="Collapsed"/>
                 </StackPanel>
 
                 <TextBlock x:Name="NetworkSummaryText"
-                           Text="Network status: not checked."
-                           Foreground="White"
-                           Opacity="0.9"
-                           FontSize="18"
-                           TextWrapping="Wrap"
-                           Margin="0,0,0,12"/>
+                   Text="Network status: not checked."
+                   Foreground="White"
+                   Opacity="0.9"
+                   FontSize="18"
+                   TextWrapping="Wrap"
+                   Margin="0,0,0,12"/>
 
-                <TextBlock Text="Available Wi-Fi Networks"
-                           Foreground="White"
-                           FontSize="18"
-                           Margin="0,0,0,6"/>
+                <!-- Wi-Fi only section -->
+                <StackPanel x:Name="WifiSectionPanel"
+                    Visibility="Collapsed">
 
-                <ListBox x:Name="NetworksListBox"
-         Height="220"
-         FontSize="18"
-         SelectionMode="Single"
-         SelectionChanged="NetworksListBox_SelectionChanged">
+                    <TextBlock Text="Available Wi-Fi Networks"
+                       Foreground="White"
+                       FontSize="18"
+                       Margin="0,0,0,6"/>
 
-                    <!-- ✅ Make items visible on dark background -->
-                    <ListBox.Background>#0B2C53</ListBox.Background>
-                    <ListBox.BorderBrush>#2D5C91</ListBox.BorderBrush>
-                    <ListBox.BorderThickness>1</ListBox.BorderThickness>
+                    <ListBox x:Name="NetworksListBox"
+                     Height="220"
+                     FontSize="18"
+                     SelectionMode="Single"
+                     SelectionChanged="NetworksListBox_SelectionChanged">
 
-                    <ListBox.ItemContainerStyle>
-                        <Style TargetType="ListBoxItem">
-                            <Setter Property="Background" Value="Transparent"/>
-                            <Setter Property="Foreground" Value="White"/>
-                            <Setter Property="Padding" Value="8,6"/>
-                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                            <Setter Property="Template">
-                                <Setter.Value>
-                                    <ControlTemplate TargetType="ListBoxItem">
-                                        <Border x:Name="Bd"
-                                Background="{TemplateBinding Background}"
-                                CornerRadius="8"
-                                SnapsToDevicePixels="True">
-                                            <ContentPresenter/>
-                                        </Border>
-                                        <ControlTemplate.Triggers>
-                                            <Trigger Property="IsMouseOver" Value="True">
-                                                <Setter TargetName="Bd" Property="Background" Value="#244E7A"/>
-                                            </Trigger>
-                                            <Trigger Property="IsSelected" Value="True">
-                                                <Setter TargetName="Bd" Property="Background" Value="#2D6AA3"/>
-                                            </Trigger>
-                                        </ControlTemplate.Triggers>
-                                    </ControlTemplate>
-                                </Setter.Value>
-                            </Setter>
-                        </Style>
-                    </ListBox.ItemContainerStyle>
+                        <ListBox.Background>#0B2C53</ListBox.Background>
+                        <ListBox.BorderBrush>#2D5C91</ListBox.BorderBrush>
+                        <ListBox.BorderThickness>1</ListBox.BorderThickness>
 
-                    <ListBox.ItemTemplate>
-                        <DataTemplate>
-                            <Grid Margin="4">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="120"/>
-                                    <ColumnDefinition Width="140"/>
-                                </Grid.ColumnDefinitions>
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem">
+                                <Setter Property="Background" Value="Transparent"/>
+                                <Setter Property="Foreground" Value="White"/>
+                                <Setter Property="Padding" Value="8,6"/>
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ListBoxItem">
+                                            <Border x:Name="Bd"
+                                            Background="{TemplateBinding Background}"
+                                            CornerRadius="8"
+                                            SnapsToDevicePixels="True">
+                                                <ContentPresenter/>
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="Bd" Property="Background" Value="#244E7A"/>
+                                                </Trigger>
+                                                <Trigger Property="IsSelected" Value="True">
+                                                    <Setter TargetName="Bd" Property="Background" Value="#2D6AA3"/>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </ListBox.ItemContainerStyle>
 
-                                <TextBlock Grid.Column="0"
-                           Text="{Binding Ssid}"
-                           Foreground="White"
-                           FontSize="18"/>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="120"/>
+                                        <ColumnDefinition Width="140"/>
+                                    </Grid.ColumnDefinitions>
 
-                                <TextBlock Grid.Column="1"
-                           Text="{Binding SignalText}"
-                           Foreground="White"
-                           FontSize="16"
-                           HorizontalAlignment="Right"/>
+                                    <TextBlock Grid.Column="0"
+                                       Text="{Binding Ssid}"
+                                       Foreground="White"
+                                       FontSize="18"/>
 
-                                <TextBlock Grid.Column="2"
-                           Text="{Binding SecurityText}"
-                           Foreground="White"
-                           FontSize="16"
-                           HorizontalAlignment="Right"/>
-                            </Grid>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
+                                    <TextBlock Grid.Column="1"
+                                       Text="{Binding SignalText}"
+                                       Foreground="White"
+                                       FontSize="16"
+                                       HorizontalAlignment="Right"/>
 
+                                    <TextBlock Grid.Column="2"
+                                       Text="{Binding SecurityText}"
+                                       Foreground="White"
+                                       FontSize="16"
+                                       HorizontalAlignment="Right"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
 
-
-                </ListBox>
-
-                <TextBlock Text="Tip: Select a network, then use Open Wi-Fi Settings to join if needed."
-                           Foreground="White"
-                           Opacity="0.8"
-                           FontSize="16"
-                           Margin="0,10,0,0"
-                           TextWrapping="Wrap"/>
+                    <TextBlock x:Name="WifiTipText"
+                       Text="No network connection was detected. Select a network, then use Open Wi-Fi Settings to join if needed."
+                       Foreground="White"
+                       Opacity="0.8"
+                       FontSize="16"
+                       Margin="0,10,0,0"
+                       TextWrapping="Wrap"/>
+                </StackPanel>
             </StackPanel>
         </Border>
-
+        
         <!-- =========================
              STEP 2 — COMMISSIONING ID
              ========================= -->

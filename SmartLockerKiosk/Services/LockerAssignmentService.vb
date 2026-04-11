@@ -12,27 +12,27 @@ Public Class LockerAssignmentService
         Using db = DatabaseBootstrapper.BuildDbContext()
 
             Dim candidates = db.Lockers.
-                AsNoTracking().
-                Include(Function(l) l.Status).
-                Where(Function(l) l.IsEnabled).
-                Where(Function(l) l.SizeCode IsNot Nothing AndAlso l.SizeCode.Trim().ToUpper() = code).
-                Where(Function(l) l.Status IsNot Nothing).
-                Where(Function(l) l.Status.OccupancyState = OccupancyState.Vacant).
-                Where(Function(l) l.Status.LockState = LockState.Closed).
-                Where(Function(l) Not l.Status.ReservedUntilUtc.HasValue OrElse l.Status.ReservedUntilUtc.Value <= nowUtc).
-                Where(Function(l) Not l.Status.PackagePresent.HasValue OrElse l.Status.PackagePresent.Value = False)
+            AsNoTracking().
+            Include(Function(l) l.Status).
+            Where(Function(l) l.IsEnabled).
+            Where(Function(l) l.SizeCode IsNot Nothing AndAlso l.SizeCode.Trim().ToUpper() = code).
+            Where(Function(l) l.Status IsNot Nothing).
+            Where(Function(l) l.Status.OccupancyState = OccupancyState.Vacant).
+            Where(Function(l) l.Status.LockState = LockState.Closed).
+            Where(Function(l) Not l.Status.ReservedUntilUtc.HasValue OrElse l.Status.ReservedUntilUtc.Value <= nowUtc).
+            Where(Function(l) Not l.Status.PackagePresent.HasValue OrElse l.Status.PackagePresent.Value = False)
 
             If Not String.IsNullOrWhiteSpace(preferredZone) Then
                 Dim z = preferredZone.Trim()
 
                 candidates = candidates.
-                    OrderByDescending(Function(l) l.Zone IsNot Nothing AndAlso l.Zone = z).
-                    ThenBy(Function(l) l.RelayId).
-                    ThenBy(Function(l) l.LockerNumber)
+                OrderByDescending(Function(l) l.Zone IsNot Nothing AndAlso l.Zone = z).
+                ThenBy(Function(l) l.RelayId).
+                ThenBy(Function(l) l.LockerNumber)
             Else
                 candidates = candidates.
-                    OrderBy(Function(l) l.RelayId).
-                    ThenBy(Function(l) l.LockerNumber)
+                OrderBy(Function(l) l.RelayId).
+                ThenBy(Function(l) l.LockerNumber)
             End If
 
             Dim locker = candidates.FirstOrDefault()

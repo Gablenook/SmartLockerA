@@ -24,6 +24,49 @@
                           BlurRadius="100"
                           ShadowDepth=".25"
                           Opacity=".5"/>
+
+        <Style x:Key="PrimaryActionButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="#3399FF"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="FontFamily" Value="Segoe UI"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}"
+                                CornerRadius="18"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              Margin="{TemplateBinding Padding}"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="WorkflowButtonStyle" TargetType="Button" BasedOn="{StaticResource PrimaryActionButtonStyle}">
+            <Setter Property="Width" Value="300"/>
+            <Setter Property="Height" Value="100"/>
+            <Setter Property="FontSize" Value="48"/>
+            <Setter Property="Margin" Value="10,0"/>
+        </Style>
+
+        <Style x:Key="DialogButtonStyle" TargetType="Button" BasedOn="{StaticResource PrimaryActionButtonStyle}">
+            <Setter Property="Width" Value="180"/>
+            <Setter Property="Height" Value="90"/>
+            <Setter Property="FontSize" Value="34"/>
+            <Setter Property="Margin" Value="12,0"/>
+        </Style>
+
+        <Style x:Key="SizeTileButtonStyle" TargetType="Button" BasedOn="{StaticResource PrimaryActionButtonStyle}">
+            <Setter Property="Width" Value="200"/>
+            <Setter Property="Height" Value="120"/>
+            <Setter Property="Margin" Value="8"/>
+            <Setter Property="Padding" Value="12"/>
+        </Style>
     </Window.Resources>
 
     <Grid x:Name="RootGrid">
@@ -43,11 +86,8 @@
 
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
-                    <!-- Header -->
                     <RowDefinition Height="*"/>
-                    <!-- Main -->
                     <RowDefinition Height="Auto"/>
-                    <!-- Footer -->
                 </Grid.RowDefinitions>
 
                 <!-- Header -->
@@ -67,7 +107,8 @@
 
                     <Button Grid.Column="2"
                             Content="X"
-                            Width="40" Height="40"
+                            Width="40"
+                            Height="40"
                             FontSize="16"
                             FontWeight="Bold"
                             Background="Red"
@@ -88,35 +129,22 @@
 
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
-                        <!-- Buttons -->
                         <RowDefinition Height="Auto"/>
-                        <!-- Prompt -->
                         <RowDefinition Height="*"/>
-                        <!-- Size + Keypad (critical) -->
                     </Grid.RowDefinitions>
 
-                    <!-- Buttons -->
+                    <!-- Workflow Buttons -->
                     <StackPanel Grid.Row="0"
                                 Orientation="Horizontal"
                                 HorizontalAlignment="Center"
                                 Margin="0,6,0,6">
                         <Button x:Name="DeliverButton"
+                                Style="{StaticResource WorkflowButtonStyle}"
                                 Content="DELIVER"
-                                Width="300" Height="100"
-                                FontSize="48"
-                                FontWeight="Bold"
-                                Background="#3399FF"
-                                Foreground="White"
-                                Margin="10,0"
                                 Click="DeliverButton_Click"/>
                         <Button x:Name="PickupButton"
+                                Style="{StaticResource WorkflowButtonStyle}"
                                 Content="PICKUP"
-                                Width="300" Height="100"
-                                FontSize="48"
-                                FontWeight="Bold"
-                                Background="#3399FF"
-                                Foreground="White"
-                                Margin="10,0"
                                 Click="PickupButton_Click"/>
                     </StackPanel>
 
@@ -125,7 +153,8 @@
                             HorizontalAlignment="Center"
                             VerticalAlignment="Center"
                             Width="625"
-                            Height="100"
+                            MinHeight="100"
+                            MaxHeight="220"
                             Margin="0,10,0,10"
                             Background="#60FFFFFF"
                             CornerRadius="40"
@@ -139,29 +168,32 @@
                                    Foreground="White"
                                    TextAlignment="Center"
                                    TextWrapping="Wrap"
+                                   TextTrimming="None"
                                    FontFamily="Segoe UI"/>
                     </Border>
 
-                    <!-- Size + Keypad area -->
+                    <!-- Keypad + Overlays -->
                     <Grid Grid.Row="2" Margin="0,0,0,0">
-                        <!-- KEY CHANGE:
-                             Size panel is Auto (capped), keypad gets the remaining "*" space -->
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <!-- Size panel -->
-                            <RowDefinition Height="*"/>
-                            <!-- Keypad ALWAYS fits -->
-                        </Grid.RowDefinitions>
 
-                        <!-- Size selection (shows above keypad, cannot steal all height) -->
+                        <!-- Keypad always stays full-size -->
+                        <Viewbox Stretch="Uniform"
+                                 HorizontalAlignment="Center"
+                                 VerticalAlignment="Stretch"
+                                 Margin="0,0,0,0">
+                            <keypad:NumericKeypadControl x:Name="KeypadControl"/>
+                        </Viewbox>
+
+                        <!-- Size Selection Overlay -->
                         <Border x:Name="SizeSelectionPanel"
-                                Grid.Row="0"
-                                Margin="0,0,0,8"
-                                Background="#30FFFFFF"
+                                Background="#D0203A5A"
                                 CornerRadius="24"
-                                Padding="16"
+                                Padding="18"
+                                Margin="10,10,10,10"
                                 Visibility="Collapsed"
-                                MaxHeight="320">
+                                Panel.ZIndex="10"
+                                VerticalAlignment="Top"
+                                HorizontalAlignment="Stretch"
+                                MaxHeight="430">
 
                             <StackPanel>
                                 <TextBlock Text="Select Compartment Size"
@@ -169,10 +201,11 @@
                                            FontWeight="Bold"
                                            Foreground="White"
                                            HorizontalAlignment="Center"
-                                           Margin="0,0,0,10"/>
+                                           Margin="0,0,0,14"/>
 
                                 <ScrollViewer VerticalScrollBarVisibility="Auto"
-              HorizontalScrollBarVisibility="Disabled">
+                                              HorizontalScrollBarVisibility="Disabled"
+                                              MaxHeight="340">
                                     <ItemsControl x:Name="SizeTilesItems">
                                         <ItemsControl.ItemsPanel>
                                             <ItemsPanelTemplate>
@@ -182,41 +215,44 @@
 
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
-                                                <Button Click="SizeTile_Click"
-                        Tag="{Binding SizeCode}"
-                        Margin="8"
-                        Padding="14"
-                        Background="#3399FF"
-                        Foreground="White"
-                        BorderThickness="0"
-                        Width="210"
-                        Height="140"
-                        FontFamily="Segoe UI">
+                                                <Button Style="{StaticResource SizeTileButtonStyle}"
+                                                        Click="SizeTile_Click"
+                                                        Tag="{Binding SizeCode}">
 
-                                                    <Border CornerRadius="18" Background="#3399FF">
-                                                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                    <Grid Margin="4">
+                                                        <Grid.RowDefinitions>
+                                                            <RowDefinition Height="Auto"/>
+                                                            <RowDefinition Height="Auto"/>
+                                                            <RowDefinition Height="*"/>
+                                                        </Grid.RowDefinitions>
 
-                                                            <TextBlock Text="{Binding DisplayName}"
-                                       FontSize="22"
-                                       FontWeight="Bold"
-                                       TextAlignment="Center"
-                                       Margin="0,0,0,6"/>
+                                                        <TextBlock Grid.Row="0"
+                                                                   Text="{Binding DisplayName}"
+                                                                   FontSize="24"
+                                                                   FontWeight="Bold"
+                                                                   TextAlignment="Center"
+                                                                   TextWrapping="Wrap"
+                                                                   Margin="0,0,0,4"/>
 
-                                                            <TextBlock Text="{Binding DimText}"
-                                       FontSize="14"
-                                       Opacity="0.90"
-                                       TextAlignment="Center"
-                                       Margin="0,0,0,10"/>
+                                                        <TextBlock Grid.Row="1"
+                                                                   Text="{Binding DimText}"
+                                                                   FontSize="16"
+                                                                   FontWeight="SemiBold"
+                                                                   Opacity="0.95"
+                                                                   TextAlignment="Center"
+                                                                   TextWrapping="Wrap"
+                                                                   Margin="0,0,0,8"/>
 
-                                                            <!-- Simple "thumbnail" box showing relative proportions -->
-                                                            <Border Width="{Binding ThumbWidth}"
-                                    Height="{Binding ThumbHeight}"
-                                    BorderBrush="White"
-                                    BorderThickness="2"
-                                    CornerRadius="8"
-                                    Opacity="0.85"/>
-                                                        </StackPanel>
-                                                    </Border>
+                                                        <Border Grid.Row="2"
+                                                                Width="{Binding ThumbWidth}"
+                                                                Height="{Binding ThumbHeight}"
+                                                                BorderBrush="White"
+                                                                BorderThickness="2"
+                                                                CornerRadius="8"
+                                                                Opacity="0.85"
+                                                                HorizontalAlignment="Center"
+                                                                VerticalAlignment="Center"/>
+                                                    </Grid>
                                                 </Button>
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>
@@ -225,14 +261,48 @@
                             </StackPanel>
                         </Border>
 
-                        <!-- Keypad: fills remaining space; Viewbox will scale it DOWN instead of clipping -->
-                        <Viewbox Grid.Row="1"
-                                 Stretch="Uniform"
-                                 HorizontalAlignment="Center"
-                                 VerticalAlignment="Stretch"
-                                 Margin="0,0,0,0">
-                            <keypad:NumericKeypadControl x:Name="KeypadControl"/>
-                        </Viewbox>
+                        <!-- Deliver Another Overlay -->
+                        <Border x:Name="DeliverAnotherPanel"
+                                Background="#D0203A5A"
+                                CornerRadius="24"
+                                Padding="20"
+                                Margin="40,120,40,120"
+                                Visibility="Collapsed"
+                                Panel.ZIndex="20"
+                                VerticalAlignment="Center"
+                                HorizontalAlignment="Stretch">
+
+                            <StackPanel HorizontalAlignment="Center">
+                                <TextBlock Text="Deliver Another?"
+                                           FontSize="34"
+                                           FontWeight="Bold"
+                                           Foreground="White"
+                                           TextAlignment="Center"
+                                           Margin="0,0,0,8"/>
+
+                                <TextBlock x:Name="DeliverAnotherCountdownText"
+                                           Text="Returning to start in 15 seconds."
+                                           FontSize="20"
+                                           Foreground="White"
+                                           Opacity="0.9"
+                                           TextAlignment="Center"
+                                           Margin="0,0,0,20"/>
+
+                                <StackPanel Orientation="Horizontal"
+                                            HorizontalAlignment="Center">
+                                    <Button x:Name="DeliverAnotherYesButton"
+                                            Style="{StaticResource DialogButtonStyle}"
+                                            Content="YES"
+                                            Click="DeliverAnotherYesButton_Click"/>
+
+                                    <Button x:Name="DeliverAnotherNoButton"
+                                            Style="{StaticResource DialogButtonStyle}"
+                                            Content="NO"
+                                            Background="#666666"
+                                            Click="DeliverAnotherNoButton_Click"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
 
                     </Grid>
                 </Grid>
@@ -246,7 +316,8 @@
                       Panel.ZIndex="999"
                       IsHitTestVisible="True">
 
-                    <Ellipse Width="200" Height="62"
+                    <Ellipse Width="200"
+                             Height="62"
                              Fill="White"
                              Opacity="0.20"
                              HorizontalAlignment="Center"
@@ -282,5 +353,4 @@
         </Viewbox>
     </Grid>
 </Window>
-
 

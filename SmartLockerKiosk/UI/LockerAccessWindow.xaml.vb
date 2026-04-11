@@ -38,8 +38,7 @@ Namespace SmartLockerKiosk
         Private _selectedSizeCode As String = Nothing
         Private _sessionToken As String = ""
         Private ReadOnly _assigner As New LockerAssignmentService()
-        Private Shared ReadOnly _jsonOpts As New JsonSerializerOptions With {
-    .PropertyNameCaseInsensitive = True
+        Private Shared ReadOnly _jsonOpts As New JsonSerializerOptions With {.PropertyNameCaseInsensitive = True
 }
         Private _commitFlushTimer As Threading.DispatcherTimer
         Private _isFlushing As Boolean = False
@@ -48,15 +47,26 @@ Namespace SmartLockerKiosk
         Private _loadedOnce As Boolean = False
         Private ReadOnly _instanceId As String = Guid.NewGuid().ToString("N").Substring(0, 8)
         Private ReadOnly _backend As IOperationsBackendService
+        Private _deliverAnotherTcs As TaskCompletionSource(Of Boolean?) = Nothing
+        Private _deliverAnotherTimeoutCts As System.Threading.CancellationTokenSource = Nothing
+
+        Private ReadOnly _scanner As New BarcodeScanService()
 
 
         Shared Sub New()
             _jsonOpts.Converters.Add(New JsonStringEnumConverter())
         End Sub
-        Public Sub New()
+        Public Sub New(lockerController As LockerControllerService)
             InitializeComponent()
             fadeIn = CType(FindResource("FadeInPrompt"), Storyboard)
-            _backend = New OperationsBackendService()
+
+            _lockerController = lockerController
+
+            If AppSettings.UseBackendBypass Then
+                _backend = New BypassOperationsBackendService()
+            Else
+                _backend = New OperationsBackendService(BackendHttpFactory.CreateHttpClient())
+            End If
         End Sub
         Private Sub LockerAccessWindow_Loaded(sender As Object, e As RoutedEventArgs) Handles Me.Loaded
 
@@ -89,48 +99,53 @@ Namespace SmartLockerKiosk
 
             KeypadControl.AutoSubmitOnLength = False
             KeypadControl.RequireExactLengthOnSubmit = False
-            KeypadControl.SetPasscodeLength(20) ' max length cap
+            KeypadControl.SetPasscodeLength(20)
 
-            _lockerController = New LockerControllerService()
+            ' Scanner wiring
+            RemoveHandler _scanner.ScanCompleted, AddressOf OnScanCompleted
+            RemoveHandler _scanner.ScanRejected, AddressOf OnScanRejected
+            RemoveHandler _scanner.Trace, AddressOf OnScannerTrace
+
+            AddHandler _scanner.ScanCompleted, AddressOf OnScanCompleted
+            AddHandler _scanner.ScanRejected, AddressOf OnScanRejected
+            AddHandler _scanner.Trace, AddressOf OnScannerTrace
+
+            _scanner.IsEnabled = True
+            _scanner.Reset()
 
             ResetToAwaitWorkflowChoice()
 
             Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
-    .EventType = Audit.AuditEventType.SystemStartup,
-    .ActorType = Audit.ActorType.System,
-    .ActorId = "System:SmartLockerKiosk",
-    .AffectedComponent = "LockerAccessWindow",
-    .Outcome = Audit.AuditOutcome.Success,
-    .CorrelationId = Guid.NewGuid().ToString("N"),
-    .ReasonCode = "LockerAccessWindowLoaded"
-})
-
-
+        .EventType = Audit.AuditEventType.SystemStartup,
+        .ActorType = Audit.ActorType.System,
+        .ActorId = "System:SmartLockerKiosk",
+        .AffectedComponent = "LockerAccessWindow",
+        .Outcome = Audit.AuditOutcome.Success,
+        .CorrelationId = Guid.NewGuid().ToString("N"),
+        .ReasonCode = "LockerAccessWindowLoaded"
+    })
 
             FocusHidSink()
         End Sub
-
-
         Private Sub FocusHidSink()
-            Dispatcher.BeginInvoke(Sub()
-                                       HidInputBox.Focus()
-                                       Keyboard.Focus(HidInputBox)
-                                   End Sub, System.Windows.Threading.DispatcherPriority.Background)
+            Dispatcher.BeginInvoke(
+        Sub()
+            If HidInputBox Is Nothing Then Return
+            HidInputBox.Focus()
+            Keyboard.Focus(HidInputBox)
+        End Sub,
+        System.Windows.Threading.DispatcherPriority.Background)
         End Sub
         Private Sub LockerAccessWindow_Activated(sender As Object, e As EventArgs) Handles Me.Activated
             FocusHidSink()
         End Sub
         Private Sub HidInputBox_PreviewKeyDown(sender As Object, e As KeyEventArgs) Handles HidInputBox.PreviewKeyDown
-            If e.Key <> Key.Enter Then Return
+            If e Is Nothing Then Return
 
-            Dim scanned As String = HidInputBox.Text.Trim()
-            HidInputBox.Clear()
-            e.Handled = True
-
-            If scanned.Length = 0 Then Return
-
-            RouteScan(scanned, "HID")
-
+            If e.Key = Key.Enter OrElse e.Key = Key.Return Then
+                HidInputBox.Clear()
+                e.Handled = True
+            End If
         End Sub
         Private Sub RouteScan(raw As String, source As String)
             Dim value = (If(raw, "")).Trim()
@@ -148,6 +163,277 @@ Namespace SmartLockerKiosk
                     Return
             End Select
         End Sub
+        Private Sub Window_PreviewTextInput(sender As Object, e As TextCompositionEventArgs) Handles Me.PreviewTextInput
+            If e Is Nothing Then Return
+            If String.IsNullOrEmpty(e.Text) Then Return
+
+            _scanner.HandleTextInput(e.Text)
+        End Sub
+        Private Sub Window_PreviewKeyDown(sender As Object, e As KeyEventArgs) Handles Me.PreviewKeyDown
+            If e Is Nothing Then Return
+
+            _scanner.HandleKeyDown(e.Key)
+
+            If e.Key = Key.Enter OrElse e.Key = Key.Return Then
+                e.Handled = True
+            End If
+        End Sub
+        Private Sub OnScanCompleted(scanText As String)
+            Dim value As String = If(scanText, String.Empty).Trim()
+            If value.Length = 0 Then Return
+
+            Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
+        .EventType = Audit.AuditEventType.PolicyConfigurationChange,
+        .ActorType = Audit.ActorType.System,
+        .ActorId = "System:Scanner",
+        .AffectedComponent = "BarcodeScanService",
+        .Outcome = Audit.AuditOutcome.Success,
+        .CorrelationId = Guid.NewGuid().ToString("N"),
+        .ReasonCode = $"ScanCompleted;State={_state};Value={value}"
+    })
+
+            RouteScan(value, "HID")
+        End Sub
+        Private Sub OnScanRejected(reason As String, rawText As String)
+            Dim safeReason As String = If(reason, "Scanner input rejected")
+            Dim safeRaw As String = If(rawText, String.Empty)
+
+            Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
+        .EventType = Audit.AuditEventType.PolicyConfigurationChange,
+        .ActorType = Audit.ActorType.System,
+        .ActorId = "System:Scanner",
+        .AffectedComponent = "BarcodeScanService",
+        .Outcome = Audit.AuditOutcome.Failure,
+        .CorrelationId = Guid.NewGuid().ToString("N"),
+        .ReasonCode = $"ScanRejected;State={_state};Reason={safeReason};Raw={safeRaw}"
+    })
+
+            Select Case _state
+                Case ScreenState.AwaitCredential,
+             ScreenState.AwaitAdminCredential,
+             ScreenState.AwaitWorkOrder
+
+                    ShowPrompt("Scan not recognized. Please try again.")
+                    FocusHidSink()
+            End Select
+        End Sub
+        Private Sub OnScannerTrace(message As String)
+            Dim safeMessage As String = If(message, String.Empty)
+
+            Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
+        .EventType = Audit.AuditEventType.PolicyConfigurationChange,
+        .ActorType = Audit.ActorType.System,
+        .ActorId = "System:Scanner",
+        .AffectedComponent = "BarcodeScanService",
+        .Outcome = Audit.AuditOutcome.Success,
+        .CorrelationId = Guid.NewGuid().ToString("N"),
+        .ReasonCode = $"ScannerTrace;State={_state};Message={safeMessage}"
+    })
+        End Sub
+
+        'Pickup workflow
+        Private Function FindAuthorizedWorkOrder(scannedWorkOrder As String) As WorkOrderAuthItem
+            Dim wo = (If(scannedWorkOrder, "")).Trim()
+            If wo.Length = 0 Then Return Nothing
+
+            If _authorizedWorkOrders Is Nothing OrElse _authorizedWorkOrders.Count = 0 Then
+                Return Nothing
+            End If
+
+            Dim desiredTxn As String =
+        If(_selectedWorkflow.HasValue AndAlso _selectedWorkflow.Value = WorkflowMode.Delivery,
+           "Delivery",
+           "Pickup")
+
+            Dim matches = _authorizedWorkOrders.
+        Where(Function(x) x IsNot Nothing AndAlso
+                          wo.Equals((If(x.WorkOrderNumber, "")).Trim(), StringComparison.OrdinalIgnoreCase) AndAlso
+                          (String.IsNullOrWhiteSpace(x.TransactionType) OrElse
+                           desiredTxn.Equals(x.TransactionType.Trim(), StringComparison.OrdinalIgnoreCase))).
+        ToList()
+
+            If matches.Count = 0 Then
+                Return Nothing
+            End If
+
+            If matches.Count > 1 Then
+                Throw New InvalidOperationException(
+            $"Multiple authorized records were returned for work order {wo} and transaction type {desiredTxn}.")
+            End If
+
+            Return matches(0)
+        End Function
+        Private Function GetReservedLockerNumbersForWorkOrder(workOrderNumber As String) As List(Of String)
+            Dim wo = (If(workOrderNumber, "")).Trim()
+            If wo.Length = 0 Then Return New List(Of String)()
+
+            Using db = DatabaseBootstrapper.BuildDbContext()
+
+                Dim lockerNumbers = db.Lockers.
+            AsNoTracking().
+            Include(Function(l) l.Status).
+            Where(Function(l) l.IsEnabled).
+            Where(Function(l) l.Status IsNot Nothing).
+            Where(Function(l) (l.Status.OccupancyState = OccupancyState.Reserved) OrElse
+                              (l.Status.OccupancyState = OccupancyState.Occupied)).
+            Where(Function(l) l.Status.ReservedWorkOrderNumber IsNot Nothing AndAlso
+                              l.Status.ReservedWorkOrderNumber.Trim().ToUpper() = wo.ToUpper()).
+            OrderBy(Function(l) l.RelayId).
+            ThenBy(Function(l) l.LockerNumber).
+            Select(Function(l) l.LockerNumber).
+            ToList()
+
+                Return lockerNumbers.
+            Where(Function(x) Not String.IsNullOrWhiteSpace(x)).
+            Select(Function(x) x.Trim()).
+            ToList()
+
+            End Using
+        End Function
+        Private Function TryOpenLockerWithAudit(actionId As String,
+                                        workOrderNumber As String,
+                                        lockerNumber As String) As Boolean
+            Try
+                Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
+            .EventType = Audit.AuditEventType.LockerOpenAttempt,
+            .ActorType = Audit.ActorType.User,
+            .ActorId = If(_authResult IsNot Nothing, $"User:{_authResult.UserId}", "User:Unknown"),
+            .AffectedComponent = "LockerControllerService",
+            .Outcome = Audit.AuditOutcome.Success,
+            .CorrelationId = actionId,
+            .ReasonCode = $"PickupOpenRequested;WO={workOrderNumber};Locker={lockerNumber}"
+        })
+
+                Dim opened = _lockerController.UnlockByLockerNumber(lockerNumber)
+                If Not opened Then
+                    Throw New InvalidOperationException($"Unlock command was not accepted for locker {lockerNumber}.")
+                End If
+
+                Return True
+
+            Catch ex As Exception
+                Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
+            .EventType = Audit.AuditEventType.LockerOpenAttempt,
+            .ActorType = Audit.ActorType.User,
+            .ActorId = If(_authResult IsNot Nothing, $"User:{_authResult.UserId}", "User:Unknown"),
+            .AffectedComponent = "LockerControllerService",
+            .Outcome = Audit.AuditOutcome.Error,
+            .CorrelationId = actionId,
+            .ReasonCode = $"PickupOpenFailed;WO={workOrderNumber};Locker={lockerNumber};Error={ex.GetType().Name}"
+        })
+
+                ShowPrompt($"Unable to open locker {lockerNumber}. Please contact attendant.")
+                Return False
+            End Try
+        End Function
+        Private Async Function ProcessPickupWorkOrderAsync(wo As String,
+                                                   source As String,
+                                                   actionId As String,
+                                                   myEpoch As Integer) As Task
+            Dim authMatch = FindAuthorizedWorkOrder(wo)
+
+            If authMatch Is Nothing Then
+                _state = ScreenState.AwaitWorkOrder
+
+                Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
+            .EventType = Audit.AuditEventType.AuthenticationAttempt,
+            .ActorType = Audit.ActorType.User,
+            .ActorId = If(_authResult IsNot Nothing, $"User:{_authResult.UserId}", "User:Unknown"),
+            .AffectedComponent = "LockerAccessWindow",
+            .Outcome = Audit.AuditOutcome.Denied,
+            .CorrelationId = actionId,
+            .ReasonCode = $"WorkOrderDenied:NotAuthorized;WO={wo};Source={source}"
+        })
+
+                ShowPrompt("Work Order not Recognized")
+                Return
+            End If
+
+            _activeWorkOrder = authMatch
+
+            Dim reservedLockers = GetReservedLockerNumbersForWorkOrder(wo)
+
+            If reservedLockers.Count = 0 Then
+                _state = ScreenState.AwaitWorkOrder
+                ShowPrompt("No reserved locker was found for this work order.")
+                Return
+            End If
+
+            ShowPrompt($"Opening locker(s) {String.Join(", ", reservedLockers)}…")
+
+            Dim openedLockers As New List(Of String)
+            Dim failedLockers As New List(Of String)
+
+            For Each lockerNumber In reservedLockers
+                If myEpoch <> _uiEpoch Then Return
+
+                Try
+                    Dim authorizeResponse = Await AuthorizeLockerOpenActionForWorkOrderAsync(
+                workOrderNumber:=wo,
+                lockerNumber:=lockerNumber,
+                correlationId:=actionId,
+                sessionUserId:=If(_authResult?.UserId, ""),
+                ct:=CancellationToken.None)
+
+                    If myEpoch <> _uiEpoch Then Return
+
+                    If authorizeResponse Is Nothing OrElse
+               authorizeResponse.authorization Is Nothing OrElse
+               Not authorizeResponse.authorization.isAuthorized Then
+
+                        failedLockers.Add(lockerNumber)
+                    Else
+                        Dim opened = TryOpenLockerWithAudit(actionId, wo, lockerNumber)
+
+                        If opened Then
+                            openedLockers.Add(lockerNumber)
+
+                            Await AckLockerActionSafeAsync(
+                        authorizeResponse:=authorizeResponse,
+                        correlationId:=actionId,
+                        compartmentIds:=New List(Of String) From {lockerNumber},
+                        ackStatus:="executed",
+                        hardwareEventCode:="LOCKER_OPEN_OK",
+                        message:=$"Locker {lockerNumber} opened for pickup.",
+                        ct:=CancellationToken.None)
+                        Else
+                            failedLockers.Add(lockerNumber)
+
+                            Await AckLockerActionSafeAsync(
+                        authorizeResponse:=authorizeResponse,
+                        correlationId:=actionId,
+                        compartmentIds:=New List(Of String) From {lockerNumber},
+                        ackStatus:="failed",
+                        hardwareEventCode:="LOCKER_OPEN_FAILED",
+                        message:=$"Locker {lockerNumber} failed to open for pickup.",
+                        ct:=CancellationToken.None)
+                        End If
+                    End If
+
+                Catch ex As Exception
+                    failedLockers.Add(lockerNumber)
+                    TraceToFile($"PICKUP_HYBRID_FAIL: corr={actionId} wo={wo} locker={lockerNumber} ex={ex.GetType().Name}:{ex.Message}")
+                End Try
+
+                Await Task.Delay(800)
+                If myEpoch <> _uiEpoch Then Return
+            Next
+
+            If openedLockers.Count > 0 Then
+                CompletePickupForLockers(wo, openedLockers)
+            End If
+
+            If failedLockers.Count = 0 Then
+                ShowPrompt($"Locker(s) {String.Join(", ", openedLockers)} opened. Pickup completed.")
+            ElseIf openedLockers.Count > 0 Then
+                ShowPrompt($"Some lockers opened. Completed: {String.Join(", ", openedLockers)}. Failed: {String.Join(", ", failedLockers)}")
+            Else
+                ShowPrompt("Unable to open assigned locker(s). Please contact attendant.")
+            End If
+
+            Await Task.Delay(1800)
+            If myEpoch = _uiEpoch Then ResetToAwaitWorkflowChoice()
+        End Function
         Private Async Sub SubmitWorkOrder(rawWorkOrder As String, source As String)
 
             Dim myEpoch As Integer = _uiEpoch
@@ -157,12 +443,10 @@ Namespace SmartLockerKiosk
 
             Dim actionId As String = Guid.NewGuid().ToString("N")
 
-            ' --- debounce ---
             Dim now = DateTime.UtcNow
             If (now - _lastSubmitUtc) < _submitDebounce Then Return
             _lastSubmitUtc = now
 
-            ' --- state guards ---
             If _state = ScreenState.ValidatingCredential Then Return
             If Not _selectedWorkflow.HasValue Then
                 ResetToAwaitWorkflowChoice()
@@ -178,67 +462,7 @@ Namespace SmartLockerKiosk
                 Select Case _selectedWorkflow.Value
 
                     Case WorkflowMode.Pickup
-                        Dim match = FindAuthorizedWorkOrder(wo)
-
-                        If match Is Nothing Then
-                            _state = ScreenState.AwaitWorkOrder
-
-                            Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
-                        .EventType = Audit.AuditEventType.AuthenticationAttempt,
-                        .ActorType = Audit.ActorType.User,
-                        .ActorId = If(_authResult IsNot Nothing, $"User:{_authResult.UserId}", "User:Unknown"),
-                        .AffectedComponent = "LockerAccessWindow",
-                        .Outcome = Audit.AuditOutcome.Denied,
-                        .CorrelationId = actionId,
-                        .ReasonCode = $"WorkOrderDenied:NotAuthorized;WO={wo};Source={source}"
-                    })
-
-                            ShowPrompt("Work Order not Recognized")
-                            Return
-                        End If
-
-                        _activeWorkOrder = match
-
-                        If String.IsNullOrWhiteSpace(match.LockerNumber) Then
-                            _state = ScreenState.AwaitWorkOrder
-                            ShowPrompt("No locker assigned for W.O.")
-                            Return
-                        End If
-
-                        ShowPrompt($"Opening locker {match.LockerNumber}…")
-
-                        Try
-                            Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
-                        .EventType = Audit.AuditEventType.LockerOpenAttempt,
-                        .ActorType = Audit.ActorType.User,
-                        .ActorId = If(_authResult IsNot Nothing, $"User:{_authResult.UserId}", "User:Unknown"),
-                        .AffectedComponent = "LockerControllerService",
-                        .Outcome = Audit.AuditOutcome.Success,
-                        .CorrelationId = actionId,
-                        .ReasonCode = $"PickupOpenRequested;WO={wo};Locker={match.LockerNumber}"
-                    })
-
-                            Dim opened = _lockerController.UnlockByLockerNumber(match.LockerNumber)
-                            If Not opened Then
-                                Throw New InvalidOperationException($"Unlock command was not accepted for locker {match.LockerNumber}.")
-                            End If
-                            ShowPrompt($"Locker {match.LockerNumber} opened.")
-                        Catch ex As Exception
-                            Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
-                        .EventType = Audit.AuditEventType.LockerOpenAttempt,
-                        .ActorType = Audit.ActorType.User,
-                        .ActorId = If(_authResult IsNot Nothing, $"User:{_authResult.UserId}", "User:Unknown"),
-                        .AffectedComponent = "LockerControllerService",
-                        .Outcome = Audit.AuditOutcome.Error,
-                        .CorrelationId = actionId,
-                        .ReasonCode = $"PickupOpenFailed;WO={wo};Locker={match.LockerNumber};Error={ex.GetType().Name}"
-                    })
-
-                            ShowPrompt($"Unable to open locker {match.LockerNumber}. Please contact attendant.")
-                        End Try
-
-                        Await Task.Delay(1500)
-                        If myEpoch = _uiEpoch Then ResetToAwaitWorkflowChoice()
+                        Await ProcessPickupWorkOrderAsync(wo, source, actionId, myEpoch)
                         Return
 
                     Case WorkflowMode.Delivery
@@ -272,7 +496,7 @@ Namespace SmartLockerKiosk
 
                 End Select
 
-            Catch ex As exception
+            Catch ex As Exception
                 If myEpoch <> _uiEpoch Then Return
                 ResetToAwaitWorkflowChoice()
                 ShowPrompt("System unavailable")
@@ -286,26 +510,8 @@ Namespace SmartLockerKiosk
             End Try
 
         End Sub
-        Private Function FindAuthorizedWorkOrder(scannedWorkOrder As String) As WorkOrderAuthItem
-            Dim wo = (If(scannedWorkOrder, "")).Trim()
-            If wo.Length = 0 Then Return Nothing
 
-            If _authorizedWorkOrders Is Nothing OrElse _authorizedWorkOrders.Count = 0 Then
-                Return Nothing
-            End If
 
-            Dim desiredTxn As String =
-        If(_selectedWorkflow.HasValue AndAlso _selectedWorkflow.Value = WorkflowMode.Delivery,
-           "Delivery",
-           "Pickup")
-
-            ' Exact match on WO number; and filter by txn if provided
-            Return _authorizedWorkOrders.
-        FirstOrDefault(Function(x) x IsNot Nothing AndAlso
-                                   wo.Equals((If(x.WorkOrderNumber, "")).Trim(), StringComparison.OrdinalIgnoreCase) AndAlso
-                                   (String.IsNullOrWhiteSpace(x.TransactionType) OrElse
-                                    desiredTxn.Equals(x.TransactionType.Trim(), StringComparison.OrdinalIgnoreCase)))
-        End Function
         Private Sub HandleKeypadSubmit(sender As Object, value As String)
             RouteScan(value, "KEYPAD")
         End Sub
@@ -451,7 +657,6 @@ Namespace SmartLockerKiosk
             Await ContinueWorkflowAfterAuthAsync(_selectedWorkflow.Value, result)
 
         End Sub
-
         Private Async Function ValidateCredentialWithServerAsync(
     scanValue As String,
     purpose As AuthPurpose,
@@ -597,11 +802,6 @@ Namespace SmartLockerKiosk
             PromptForCredential()
         End Sub
 
-        'Private Sub DayUseButton_Click(sender As Object, e As RoutedEventArgs) Handles DayUseButton.Click
-        ' If _state <> ScreenState.AwaitWorkflowChoice Then Return
-        '     _selectedWorkflow = WorkflowMode.DayUse
-        '     PromptForCredential()
-        ' End Sub
         Private Sub AdminLogo_MouseLeftButtonUp(sender As Object, e As MouseButtonEventArgs)
 
             e.Handled = True  ' IMPORTANT: stop bubbling to parent handlers
@@ -675,27 +875,11 @@ Namespace SmartLockerKiosk
         Private Async Sub SelectSizeAndAssignLocker(sizeCode As String)
 
             Dim myEpoch As Integer = _uiEpoch
-
             Dim actionId As String = Guid.NewGuid().ToString("N")
             Dim code As String = (If(sizeCode, "")).Trim().ToUpperInvariant()
-            If code.Length = 0 Then Return
 
-            Dim now = DateTime.UtcNow
-            If (now - _lastSubmitUtc) < _submitDebounce Then Return
-            _lastSubmitUtc = now
-
-            If _state = ScreenState.ValidatingCredential Then Return
-
-            If Not _selectedWorkflow.HasValue OrElse _selectedWorkflow.Value <> WorkflowMode.Delivery Then
-                ShowPrompt("Size selection is only used for Delivery.")
-                Return
-            End If
-
-            If _activeWorkOrder Is Nothing OrElse String.IsNullOrWhiteSpace(_activeWorkOrder.WorkOrderNumber) Then
-                ShowPrompt("Scan a Work Order first.")
-                _state = ScreenState.AwaitWorkOrder
-                Return
-            End If
+            If Not ValidateLockerSizeSelection(code) Then Return
+            If Not ValidateDeliveryWorkOrder() Then Return
 
             Dim wo As String = _activeWorkOrder.WorkOrderNumber
 
@@ -703,74 +887,208 @@ Namespace SmartLockerKiosk
             SetUiEnabled(False)
             HideLockerSizeSelection()
 
-            Dim returnToSizeSelection As Boolean = False
-            Dim delayThenReset As Boolean = False
+            Dim endSessionAfterDelay As Boolean = False
+            Dim errorMessage As String = Nothing
 
             Try
                 ShowPrompt($"Finding an available {code} compartment…")
+
                 Dim assignedLockerNumber As String = _assigner.SelectNextAvailableLockerNumber(code)
 
                 If String.IsNullOrWhiteSpace(assignedLockerNumber) Then
                     AuditNoAvailability(actionId, wo, code)
                     ShowPrompt($"No {code} compartments are available. Select a different size.")
-                    returnToSizeSelection = True
-                Else
-                    AuditAssignSucceeded(actionId, wo, code, assignedLockerNumber)
 
+                    Await Task.Delay(1200)
+                    If myEpoch <> _uiEpoch Then Return
+
+                    _state = ScreenState.AwaitLockerSize
+                    ShowLockerSizeSelection($"No {code} compartments are available. Select a different size.")
+                    Return
+                End If
+
+                ReserveLockerForDelivery(
+            lockerNumber:=assignedLockerNumber,
+            workOrderNumber:=wo,
+            sizeCode:=code,
+            correlationId:=actionId
+        )
+
+                AuditAssignSucceeded(actionId, wo, code, assignedLockerNumber)
+
+                ShowPrompt($"Authorizing locker {assignedLockerNumber}…")
+
+                Dim authorizeResponse As LockerAuthorizeResponseDto =
+            Await AuthorizeLockerOpenActionForWorkOrderAsync(
+                workOrderNumber:=wo,
+                lockerNumber:=assignedLockerNumber,
+                correlationId:=actionId,
+                sessionUserId:=If(_courierAuth?.UserId, _authResult?.UserId),
+                ct:=CancellationToken.None)
+
+                If myEpoch <> _uiEpoch Then Return
+
+                If authorizeResponse Is Nothing OrElse
+           authorizeResponse.authorization Is Nothing OrElse
+           Not authorizeResponse.authorization.isAuthorized Then
+
+                    ReleaseLockerReservation(assignedLockerNumber, "DeliveryAuthorizeDenied")
+                    ShowPrompt($"Delivery was not authorized for locker {assignedLockerNumber}.")
+                    endSessionAfterDelay = True
+                Else
                     ShowPrompt($"Opening locker {assignedLockerNumber}…")
 
-                    If Not TryOpenLockerWithAudit(actionId, wo, assignedLockerNumber) Then
-                        ShowPrompt($"Unable to open locker {assignedLockerNumber}. Please contact attendant.")
-                        delayThenReset = True
-                    Else
-                        ShowPrompt($"Locker {assignedLockerNumber} opened. Logging delivery…")
+                    Dim opened As Boolean = TryOpenLockerWithAudit(actionId, wo, assignedLockerNumber)
 
-                        Dim committedOk As Boolean = Await CommitDeliveryToServerSafeAsync(
-                    workOrderNumber:=wo,
-                    sizeCode:=code,
+                    If opened Then
+                        Await AckLockerActionSafeAsync(
+                    authorizeResponse:=authorizeResponse,
+                    correlationId:=actionId,
+                    compartmentIds:=New List(Of String) From {assignedLockerNumber},
+                    ackStatus:="executed",
+                    hardwareEventCode:="LOCKER_OPEN_OK",
+                    message:=$"Locker {assignedLockerNumber} opened for delivery.",
+                    ct:=CancellationToken.None)
+
+                        ShowPrompt($"Locker {assignedLockerNumber} opened. Place contents inside and close the door.")
+
+                        Dim closedOk = Await WaitForLockerClosedAsync(
                     lockerNumber:=assignedLockerNumber,
-                    courierAuth:=_courierAuth,
-                    correlationId:=actionId
-                )
+                    timeoutMs:=120000,
+                    myEpoch:=myEpoch)
 
                         If myEpoch <> _uiEpoch Then Return
 
-                        If committedOk Then
-                            ShowPrompt($"Delivery started. Locker {assignedLockerNumber} opened.")
+                        If Not closedOk Then
+                            ShowPrompt($"Please close locker {assignedLockerNumber} to continue.")
+                            endSessionAfterDelay = True
                         Else
-                            ShowPrompt($"Locker {assignedLockerNumber} opened. Delivery will sync when online.")
+                            CompleteDeliveryForLocker(wo, assignedLockerNumber)
+
+                            Dim deliverAnother = Await PromptDeliverAnotherAsync(
+                        timeoutSeconds:=15,
+                        myEpoch:=myEpoch)
+
+                            If myEpoch <> _uiEpoch Then Return
+
+                            If deliverAnother.HasValue Then
+                                If deliverAnother.Value Then
+                                    ContinueDeliverySession()
+                                    Return
+                                Else
+                                    EndDeliverySession()
+                                    Return
+                                End If
+                            Else
+                                EndDeliverySession()
+                                Return
+                            End If
                         End If
 
-                        delayThenReset = True
+                    Else
+                        Await AckLockerActionSafeAsync(
+                    authorizeResponse:=authorizeResponse,
+                    correlationId:=actionId,
+                    compartmentIds:=New List(Of String) From {assignedLockerNumber},
+                    ackStatus:="failed",
+                    hardwareEventCode:="LOCKER_OPEN_FAILED",
+                    message:=$"Locker {assignedLockerNumber} failed to open for delivery.",
+                    ct:=CancellationToken.None)
+
+                        ReleaseLockerReservation(assignedLockerNumber, "DeliveryOpenFailed")
+                        endSessionAfterDelay = True
                     End If
                 End If
 
-            Catch
+            Catch ex As Exception
                 If myEpoch <> _uiEpoch Then Return
-                ShowPrompt("System unavailable")
-                delayThenReset = True
+                errorMessage = $"System unavailable: {ex.Message}"
+                endSessionAfterDelay = True
 
             Finally
                 If myEpoch = _uiEpoch Then
-                    KeypadControl.Reset()
-                    SetUiEnabled(True)
                     FocusHidSink()
                 End If
             End Try
 
             If myEpoch <> _uiEpoch Then Return
 
-            If returnToSizeSelection Then
-                _state = ScreenState.AwaitLockerSize
-                ShowLockerSizeSelection()
-                Return
+            If Not String.IsNullOrWhiteSpace(errorMessage) Then
+                ShowPrompt(errorMessage)
             End If
 
-            If delayThenReset Then
+            If endSessionAfterDelay Then
                 Await Task.Delay(1500)
-                If myEpoch = _uiEpoch Then ResetToAwaitWorkflowChoice()
-                Return
+                If myEpoch = _uiEpoch Then EndDeliverySession()
             End If
+
+        End Sub
+        Private Function ValidateLockerSizeSelection(code As String) As Boolean
+
+            If code.Length = 0 Then
+                ShowPrompt("No size code received.")
+                Return False
+            End If
+
+            Dim now = DateTime.UtcNow
+            If (now - _lastSubmitUtc) < _submitDebounce Then
+                ShowPrompt("Selection ignored: debounce active.")
+                Return False
+            End If
+            _lastSubmitUtc = now
+
+            If _state = ScreenState.ValidatingCredential Then
+                ShowPrompt("Selection ignored: already validating.")
+                Return False
+            End If
+
+            If Not _selectedWorkflow.HasValue OrElse _selectedWorkflow.Value <> WorkflowMode.Delivery Then
+                ShowPrompt("Size selection is only used for Delivery.")
+                Return False
+            End If
+
+            Return True
+
+        End Function
+        Private Function ValidateDeliveryWorkOrder() As Boolean
+
+            If _activeWorkOrder Is Nothing OrElse String.IsNullOrWhiteSpace(_activeWorkOrder.WorkOrderNumber) Then
+                ShowPrompt("Scan a Work Order first.")
+                _state = ScreenState.AwaitWorkOrder
+                Return False
+            End If
+
+            Return True
+
+        End Function
+
+        Private Sub ReserveLockerForDelivery(lockerNumber As String,
+                                     workOrderNumber As String,
+                                     sizeCode As String,
+                                     correlationId As String)
+
+            Using db = DatabaseBootstrapper.BuildDbContext()
+
+                Dim locker = db.Lockers.
+                    Include(Function(l) l.Status).
+                    SingleOrDefault(Function(x) x.LockerNumber = lockerNumber)
+
+                If locker Is Nothing Then
+                    Throw New InvalidOperationException($"Locker {lockerNumber} was not found.")
+                End If
+
+                If locker.Status Is Nothing Then
+                    Throw New InvalidOperationException($"Locker {lockerNumber} does not have a LockerStatus row.")
+                End If
+
+                locker.Status.OccupancyState = OccupancyState.Reserved
+                locker.Status.ReservedWorkOrderNumber = workOrderNumber
+                locker.Status.ReservedCorrelationId = correlationId
+                locker.Status.LastUpdatedUtc = DateTime.UtcNow
+
+                db.SaveChanges()
+
+            End Using
 
         End Sub
         Private Sub ShowPrompt(text As String)
@@ -781,38 +1099,7 @@ Namespace SmartLockerKiosk
             UserPromptText.Text = text
             SafeFadeIn()
         End Sub
-        Private Function TryOpenLockerWithAudit(actionId As String, workOrderNumber As String, lockerNumber As String) As Boolean
-            Try
-                Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
-            .EventType = Audit.AuditEventType.LockerOpenAttempt,
-            .ActorType = Audit.ActorType.User,
-            .ActorId = If(_courierAuth IsNot Nothing, $"User:{_courierAuth.UserId}", "User:Unknown"),
-            .AffectedComponent = "LockerControllerService",
-            .Outcome = Audit.AuditOutcome.Success,
-            .CorrelationId = actionId,
-            .ReasonCode = $"DeliveryOpenRequested;WO={workOrderNumber};Locker={lockerNumber}"
-        })
 
-                Dim opened = _lockerController.UnlockByLockerNumber(lockerNumber)
-                If Not opened Then
-                    Throw New InvalidOperationException($"Unlock command was not accepted for locker {lockerNumber}.")
-                End If
-                Return True
-
-            Catch ex As Exception
-                Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
-            .EventType = Audit.AuditEventType.LockerOpenAttempt,
-            .ActorType = Audit.ActorType.User,
-            .ActorId = If(_courierAuth IsNot Nothing, $"User:{_courierAuth.UserId}", "User:Unknown"),
-            .AffectedComponent = "LockerControllerService",
-            .Outcome = Audit.AuditOutcome.Error,
-            .CorrelationId = actionId,
-            .ReasonCode = $"DeliveryOpenFailed;WO={workOrderNumber};Locker={lockerNumber};Error={ex.GetType().Name}"
-        })
-                Debug.WriteLine($"TryOpenLockerWithAudit failed: {ex.Message}")
-                Return False
-            End Try
-        End Function
         Private Sub AuditNoAvailability(actionId As String, workOrderNumber As String, sizeCode As String)
             Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
         .EventType = Audit.AuditEventType.PolicyConfigurationChange, ' consider adding LockerAssignmentAttempt
@@ -1127,10 +1414,20 @@ Namespace SmartLockerKiosk
         Private Function LoadLockerSizesFromDb() As List(Of LockerSize)
             Using db = DatabaseBootstrapper.BuildDbContext()
 
-                ' Assumes your DbSet is db.LockerSizes
-                ' If it’s named differently, adjust here.
+                ' Get only size codes that actually exist in commissioned/enabled lockers
+                Dim commissionedSizeCodes = db.Lockers.AsNoTracking().
+            Where(Function(l) l.IsEnabled).
+            Select(Function(l) l.SizeCode).
+            Distinct().
+            ToList()
+
+                If commissionedSizeCodes Is Nothing OrElse commissionedSizeCodes.Count = 0 Then
+                    Return New List(Of LockerSize)()
+                End If
+
+                ' Return only size definitions for those commissioned locker sizes
                 Return db.LockerSizes.AsNoTracking().
-            Where(Function(s) s.IsEnabled).
+            Where(Function(s) s.IsEnabled AndAlso commissionedSizeCodes.Contains(s.SizeCode)).
             OrderBy(Function(s) s.SortOrder).
             ThenBy(Function(s) s.SizeCode).
             ToList()
@@ -1138,14 +1435,12 @@ Namespace SmartLockerKiosk
             End Using
         End Function
         Private Sub EnsureSizeTilesLoaded()
-            If _lockerSizes IsNot Nothing AndAlso _lockerSizes.Count > 0 AndAlso
-       _sizeTiles IsNot Nothing AndAlso _sizeTiles.Count > 0 Then
+            _lockerSizes = LoadLockerSizesFromDb()
+            _sizeTiles = New List(Of SizeTile)()
+
+            If _lockerSizes Is Nothing OrElse _lockerSizes.Count = 0 Then
                 Return
             End If
-
-            _lockerSizes = LoadLockerSizesFromDb()
-
-            _sizeTiles = New List(Of SizeTile)()
 
             For Each s In _lockerSizes
                 _sizeTiles.Add(BuildSizeTile(
@@ -1162,7 +1457,6 @@ Namespace SmartLockerKiosk
             ' A List is fine; ObservableCollection is better if you plan to update dynamically.
             SizeTilesItems.ItemsSource = _sizeTiles
         End Sub
-
         Private Function BuildSizeTile(sizeCode As String, displayName As String, widthIn As Decimal, heightIn As Decimal, depthIn As Decimal) As SizeTile
             ' Create a front-face thumbnail using width vs height.
             ' Clamp aspect ratio so it never becomes unusable.
@@ -1207,30 +1501,37 @@ Namespace SmartLockerKiosk
         End Function
         Private Sub SizeTile_Click(sender As Object, e As RoutedEventArgs)
             Dim btn = TryCast(sender, Button)
-            If btn Is Nothing Then Return
+            If btn Is Nothing Then
+                ShowPrompt("Size click failed: sender was not a Button.")
+                Return
+            End If
 
             Dim code = TryCast(btn.Tag, String)
-            If String.IsNullOrWhiteSpace(code) Then Return
+            If String.IsNullOrWhiteSpace(code) Then
+                ShowPrompt("Size click failed: no SizeCode bound to button.")
+                Return
+            End If
 
-            ' Kick off assignment/open
+            ShowPrompt($"Selected size {code}.")
             SelectSizeAndAssignLocker(code)
         End Sub
-        Private Async Function GetAvailableLockersForSizeAsync(sizeCode As String) As Task(Of List(Of String))
-            ' If backend supports it, call:
-            ' GET /v1/lockers/availability?locationId=...&sizeCode=...
-            ' Otherwise return a local list (not recommended long-term)
-            Return New List(Of String) From {$"A-001", $"A-002", $"A-003", $"A-004"}
-        End Function
-        Private Sub ShowLockerSizeSelection()
+        Private Sub ShowLockerSizeSelection(Optional promptText As String = "Select compartment size.")
             EnsureSizeTilesLoaded()
             BindSizeTilesToUi()
 
             _selectedSizeCode = Nothing
 
+            If _sizeTiles Is Nothing OrElse _sizeTiles.Count = 0 Then
+                SizeSelectionPanel.Visibility = Visibility.Collapsed
+                _state = ScreenState.AwaitWorkOrder
+                ShowPrompt("No commissioned compartment sizes are available.")
+                Return
+            End If
+
             SizeSelectionPanel.Visibility = Visibility.Visible
             _state = ScreenState.AwaitLockerSize
 
-            ShowPrompt("Select compartment size.")
+            ShowPrompt(promptText)
         End Sub
         Private Sub BumpUiEpoch()
             System.Threading.Interlocked.Increment(_uiEpoch)
@@ -1270,6 +1571,350 @@ Namespace SmartLockerKiosk
             Catch
             End Try
         End Sub
+
+        Private Async Function WaitForLockerClosedAsync(lockerNumber As String,
+                                                timeoutMs As Integer,
+                                                myEpoch As Integer) As Task(Of Boolean)
+
+            Dim startedUtc = DateTime.UtcNow
+
+            Using db = DatabaseBootstrapper.BuildDbContext()
+
+                Dim locker = db.Lockers.
+            AsNoTracking().
+            SingleOrDefault(Function(l) l.LockerNumber = lockerNumber)
+
+                If locker Is Nothing Then
+                    Throw New InvalidOperationException($"Locker {lockerNumber} was not found.")
+                End If
+
+                Do
+                    If myEpoch <> _uiEpoch Then Return False
+
+                    Dim isOpen As Boolean = False
+                    Dim gotState As Boolean = False
+
+                    Try
+                        gotState = _lockerController.TryGetLockOpen(locker.Branch, locker.RelayId, isOpen)
+                    Catch
+                        gotState = False
+                    End Try
+
+                    If gotState AndAlso Not isOpen Then
+                        Return True
+                    End If
+
+                    If (DateTime.UtcNow - startedUtc).TotalMilliseconds >= timeoutMs Then
+                        Return False
+                    End If
+
+                    Await Task.Delay(250)
+                Loop
+
+            End Using
+
+        End Function
+        Private Sub ShowDeliverAnotherPrompt(timeoutSeconds As Integer)
+            ShowPrompt($"Deliver another? Returning to start in {timeoutSeconds} seconds.")
+
+            If DeliverAnotherCountdownText IsNot Nothing Then
+                DeliverAnotherCountdownText.Text = $"Returning to start in {timeoutSeconds} seconds."
+            End If
+
+            If DeliverAnotherPanel IsNot Nothing Then
+                DeliverAnotherPanel.Visibility = Visibility.Visible
+            End If
+
+            If DeliverAnotherYesButton IsNot Nothing Then
+                DeliverAnotherYesButton.IsEnabled = True
+                DeliverAnotherYesButton.Visibility = Visibility.Visible
+            End If
+
+            If DeliverAnotherNoButton IsNot Nothing Then
+                DeliverAnotherNoButton.IsEnabled = True
+                DeliverAnotherNoButton.Visibility = Visibility.Visible
+            End If
+        End Sub
+        Private Sub HideDeliverAnotherPrompt()
+            If DeliverAnotherPanel IsNot Nothing Then
+                DeliverAnotherPanel.Visibility = Visibility.Collapsed
+            End If
+
+            If DeliverAnotherYesButton IsNot Nothing Then
+                DeliverAnotherYesButton.IsEnabled = False
+                DeliverAnotherYesButton.Visibility = Visibility.Collapsed
+            End If
+
+            If DeliverAnotherNoButton IsNot Nothing Then
+                DeliverAnotherNoButton.IsEnabled = False
+                DeliverAnotherNoButton.Visibility = Visibility.Collapsed
+            End If
+        End Sub
+        Private Async Function PromptDeliverAnotherAsync(timeoutSeconds As Integer,
+                                                 myEpoch As Integer) As Task(Of Boolean?)
+
+            HideDeliverAnotherPrompt()
+
+            _deliverAnotherTcs = New TaskCompletionSource(Of Boolean?)(
+        TaskCreationOptions.RunContinuationsAsynchronously)
+
+            If _deliverAnotherTimeoutCts IsNot Nothing Then
+                _deliverAnotherTimeoutCts.Cancel()
+                _deliverAnotherTimeoutCts.Dispose()
+            End If
+
+            _deliverAnotherTimeoutCts = New CancellationTokenSource()
+            Dim token = _deliverAnotherTimeoutCts.Token
+
+            ShowDeliverAnotherPrompt(timeoutSeconds)
+
+            Dim timeoutTask As Task = Task.Delay(TimeSpan.FromSeconds(timeoutSeconds), token)
+            Dim completedTask = Await Task.WhenAny(_deliverAnotherTcs.Task, timeoutTask)
+
+            If myEpoch <> _uiEpoch Then
+                HideDeliverAnotherPrompt()
+                Return Nothing
+            End If
+
+            Dim result As Boolean? = Nothing
+
+            If completedTask Is _deliverAnotherTcs.Task Then
+                _deliverAnotherTimeoutCts.Cancel()
+                result = Await _deliverAnotherTcs.Task
+            Else
+                result = Nothing
+            End If
+
+            HideDeliverAnotherPrompt()
+            Return result
+
+        End Function
+        Private Sub ContinueDeliverySession()
+            HideDeliverAnotherPrompt()
+
+            _activeWorkOrder = Nothing
+            _state = ScreenState.AwaitWorkOrder
+
+            KeypadControl.Reset()
+            SetUiEnabled(True)
+            FocusHidSink()
+
+            ShowPrompt("Scan or enter next work order.")
+        End Sub
+        Private Sub EndDeliverySession()
+            HideDeliverAnotherPrompt()
+
+            If _deliverAnotherTimeoutCts IsNot Nothing Then
+                _deliverAnotherTimeoutCts.Cancel()
+                _deliverAnotherTimeoutCts.Dispose()
+                _deliverAnotherTimeoutCts = Nothing
+            End If
+
+            _deliverAnotherTcs = Nothing
+
+            ResetToAwaitWorkflowChoice()
+        End Sub
+        Private Sub DeliverAnotherYesButton_Click(sender As Object, e As RoutedEventArgs) Handles DeliverAnotherYesButton.Click
+            If _deliverAnotherTcs IsNot Nothing Then
+                _deliverAnotherTcs.TrySetResult(True)
+            End If
+        End Sub
+
+        Private Sub DeliverAnotherNoButton_Click(sender As Object, e As RoutedEventArgs) Handles DeliverAnotherNoButton.Click
+            If _deliverAnotherTcs IsNot Nothing Then
+                _deliverAnotherTcs.TrySetResult(False)
+            End If
+        End Sub
+        Private Sub CompletePickupForLockers(workOrderNumber As String, lockerNumbers As IEnumerable(Of String))
+
+            Dim wo = (If(workOrderNumber, "")).Trim()
+            Dim lockerList = If(lockerNumbers, Enumerable.Empty(Of String)()).
+                Where(Function(x) Not String.IsNullOrWhiteSpace(x)).
+                Select(Function(x) x.Trim()).
+                Distinct(StringComparer.OrdinalIgnoreCase).
+                ToList()
+
+            If lockerList.Count = 0 Then Return
+
+            Using db = DatabaseBootstrapper.BuildDbContext()
+
+                Dim lockers = db.Lockers.
+                    Include(Function(l) l.Status).
+                    Where(Function(l) lockerList.Contains(l.LockerNumber)).
+                    ToList()
+
+                For Each locker In lockers
+                    If locker.Status Is Nothing Then
+                        Continue For
+                    End If
+
+                    locker.Status.OccupancyState = OccupancyState.Vacant
+                    locker.Status.PackagePresent = False
+                    locker.Status.LastUpdatedUtc = DateTime.UtcNow
+
+                    locker.Status.LastWorkOrderNumber = wo
+                    locker.Status.ReservedWorkOrderNumber = Nothing
+                    locker.Status.ReservedCorrelationId = Nothing
+                    locker.Status.ReservedUntilUtc = Nothing
+
+                    locker.Status.LastReason = "PickupCompleted"
+                    locker.Status.LastActorId = If(_authResult IsNot Nothing, _authResult.UserId, Nothing)
+                Next
+
+                db.SaveChanges()
+
+            End Using
+
+        End Sub
+
+        Private Async Function AuthorizeLockerOpenActionForWorkOrderAsync(
+    workOrderNumber As String,
+    lockerNumber As String,
+    correlationId As String,
+    sessionUserId As String,
+    ct As CancellationToken
+) As Task(Of LockerAuthorizeResponseDto)
+
+            Dim wo = (If(workOrderNumber, "")).Trim()
+            Dim ln = (If(lockerNumber, "")).Trim()
+            Dim userId = (If(sessionUserId, "")).Trim()
+            Dim corr = (If(correlationId, "")).Trim()
+
+            If wo.Length = 0 Then Throw New ArgumentException("workOrderNumber is required.", NameOf(workOrderNumber))
+            If ln.Length = 0 Then Throw New ArgumentException("lockerNumber is required.", NameOf(lockerNumber))
+            If userId.Length = 0 Then Throw New InvalidOperationException("No authorized session user is available.")
+            If corr.Length = 0 Then corr = Guid.NewGuid().ToString("N")
+
+            Using db = DatabaseBootstrapper.BuildDbContext()
+
+                Dim locker = db.Lockers.
+                    AsNoTracking().
+                    SingleOrDefault(Function(l) l.LockerNumber = ln)
+
+                If locker Is Nothing Then
+                    Throw New InvalidOperationException($"Locker {ln} was not found.")
+                End If
+
+                Dim dto As New LockerAuthorizeRequestDto With {
+                    .requestId = Guid.NewGuid().ToString("N"),
+                    .correlationId = corr,
+                    .requestedBy = userId,
+                    .requestedByType = "user",
+                    .siteCode = If(String.IsNullOrWhiteSpace(AppSettings.LocationId), "UNKNOWN-SITE", AppSettings.LocationId),
+                    .lockerBankId = $"BANK-{locker.Branch}",
+                    .lockerId = locker.LockerNumber,
+                    .doorId = $"D{locker.RelayId}",
+                    .actionType = "open_door",
+                    .requestedAtUtc = DateTime.UtcNow.ToString("o"),
+                    .reasonCode = "WORK_ORDER",
+                    .metadata = New LockerAuthorizeMetadataDto With {
+                        .workOrderId = wo
+                    }
+                }
+
+                Return Await _backend.AuthorizeLockerActionAsync(dto, _sessionToken, ct)
+
+            End Using
+
+        End Function
+        Private Async Function AckLockerActionSafeAsync(
+            authorizeResponse As LockerAuthorizeResponseDto,
+            correlationId As String,
+            compartmentIds As IEnumerable(Of String),
+            ackStatus As String,
+            hardwareEventCode As String,
+            message As String,
+            ct As CancellationToken
+        ) As Task(Of Boolean)
+
+            If authorizeResponse Is Nothing Then Return False
+            If String.IsNullOrWhiteSpace(authorizeResponse.transactionId) Then Return False
+            If String.IsNullOrWhiteSpace(authorizeResponse.commandId) Then Return False
+
+            Dim ids = If(compartmentIds, Enumerable.Empty(Of String)()).
+                Where(Function(x) Not String.IsNullOrWhiteSpace(x)).
+                Select(Function(x) x.Trim()).
+                Distinct(StringComparer.OrdinalIgnoreCase).
+                ToList()
+
+            Dim dto As New LockerAckRequestDto With {
+                .transactionId = authorizeResponse.transactionId,
+                .commandId = authorizeResponse.commandId,
+                .correlationId = If(String.IsNullOrWhiteSpace(correlationId), Guid.NewGuid().ToString("N"), correlationId),
+                .ackStatus = ackStatus,
+                .adapterName = AppSettings.AdapterName,
+                .hardwareEventCode = hardwareEventCode,
+                .message = message,
+                .compartmentIds = ids
+            }
+
+            Try
+                Await _backend.AckLockerActionAsync(dto, _sessionToken, ct)
+                Return True
+            Catch ex As Exception
+                TraceToFile($"ACK_FAIL: txn={dto.transactionId} cmd={dto.commandId} corr={dto.correlationId} status={dto.ackStatus} ex={ex.GetType().Name}:{ex.Message}")
+                Return False
+            End Try
+
+        End Function
+        Private Sub ReleaseLockerReservation(lockerNumber As String, reason As String)
+
+            Dim ln = (If(lockerNumber, "")).Trim()
+            If ln.Length = 0 Then Return
+
+            Using db = DatabaseBootstrapper.BuildDbContext()
+
+                Dim locker = db.Lockers.
+                    Include(Function(l) l.Status).
+                    SingleOrDefault(Function(l) l.LockerNumber = ln)
+
+                If locker Is Nothing OrElse locker.Status Is Nothing Then
+                    Return
+                End If
+
+                locker.Status.OccupancyState = OccupancyState.Vacant
+                locker.Status.PackagePresent = False
+                locker.Status.ReservedWorkOrderNumber = Nothing
+                locker.Status.ReservedCorrelationId = Nothing
+                locker.Status.ReservedUntilUtc = Nothing
+                locker.Status.LastUpdatedUtc = DateTime.UtcNow
+                locker.Status.LastReason = reason
+
+                db.SaveChanges()
+
+            End Using
+
+        End Sub
+        Private Sub CompleteDeliveryForLocker(workOrderNumber As String, lockerNumber As String)
+
+            Dim wo = (If(workOrderNumber, "")).Trim()
+            Dim ln = (If(lockerNumber, "")).Trim()
+
+            If wo.Length = 0 OrElse ln.Length = 0 Then Return
+
+            Using db = DatabaseBootstrapper.BuildDbContext()
+
+                Dim locker = db.Lockers.
+                    Include(Function(l) l.Status).
+                    SingleOrDefault(Function(l) l.LockerNumber = ln)
+
+                If locker Is Nothing OrElse locker.Status Is Nothing Then
+                    Return
+                End If
+
+                locker.Status.OccupancyState = OccupancyState.Occupied
+                locker.Status.LastUpdatedUtc = DateTime.UtcNow
+                locker.Status.LastWorkOrderNumber = wo
+                locker.Status.LastReason = "DeliveryCompleted"
+                locker.Status.LastActorId = If(_courierAuth IsNot Nothing, _courierAuth.UserId, Nothing)
+
+                db.SaveChanges()
+
+            End Using
+
+        End Sub
+
+
     End Class
 End Namespace
 

@@ -7,25 +7,23 @@ Namespace SmartLockerKiosk
     Partial Public Class App
 
         Private _mutex As Mutex
-
+        Public Property LockerController As LockerControllerService
         Private Const SystemActorId As String = "System:SmartLockerKiosk"
         Private Const BootstrapCommissioningActorId As String = "BOOTSTRAP:COMMISSIONING"
 
         Protected Overrides Sub OnStartup(e As StartupEventArgs)
 
-            ' 1) Single instance guard (do this BEFORE base startup to avoid duplicate UI threads / COM contention)
             If Not TryAcquireSingleInstanceMutex() Then
-                ' Best-effort audit (may not yet be initialized)
                 Try
                     Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
-                    .EventType = Audit.AuditEventType.SystemStartup,
-                    .ActorType = Audit.ActorType.System,
-                    .ActorId = SystemActorId,
-                    .AffectedComponent = "App",
-                    .Outcome = Audit.AuditOutcome.Denied,
-                    .CorrelationId = Guid.NewGuid().ToString("N"),
-                    .ReasonCode = "SingleInstanceAlreadyRunning"
-                })
+                .EventType = Audit.AuditEventType.SystemStartup,
+                .ActorType = Audit.ActorType.System,
+                .ActorId = SystemActorId,
+                .AffectedComponent = "App",
+                .Outcome = Audit.AuditOutcome.Denied,
+                .CorrelationId = Guid.NewGuid().ToString("N"),
+                .ReasonCode = "SingleInstanceAlreadyRunning"
+            })
                 Catch
                 End Try
 
@@ -36,44 +34,38 @@ Namespace SmartLockerKiosk
 
             MyBase.OnStartup(e)
 
-            ' 2) Initialize audit early
             Audit.AuditServices.Initialize()
 
             Dim correlationId As String = Guid.NewGuid().ToString("N")
 
             SafeAudit(New Audit.AuditEvent With {
-            .EventType = Audit.AuditEventType.SystemStartup,
-            .ActorType = Audit.ActorType.System,
-            .ActorId = SystemActorId,
-            .AffectedComponent = "App",
-            .Outcome = Audit.AuditOutcome.Success,
-            .CorrelationId = correlationId,
-            .ReasonCode = "AppStarting"
-        })
+        .EventType = Audit.AuditEventType.SystemStartup,
+        .ActorType = Audit.ActorType.System,
+        .ActorId = SystemActorId,
+        .AffectedComponent = "App",
+        .Outcome = Audit.AuditOutcome.Success,
+        .CorrelationId = correlationId,
+        .ReasonCode = "AppStarting"
+    })
 
-            ' 3) Apply runtime config (dev/prod can be swapped inside this method later)
             ApplyRuntimeConfig(correlationId)
-
-            ' 4) Initialize DB (fail fast if DB can't be initialized)
             InitializeLocalDatabaseOrFail(correlationId)
 
-            ' 5) Determine commissioning state from DB (fail safe to commissioning)
             Dim decision = DetermineStartupMode(correlationId)
 
-            ' 6) Show the appropriate first window (no redirects from windows)
             Dim w As Window = CreateStartupWindow(decision)
             Me.MainWindow = w
             w.Show()
 
             SafeAudit(New Audit.AuditEvent With {
-            .EventType = Audit.AuditEventType.SystemStartup,
-            .ActorType = Audit.ActorType.System,
-            .ActorId = SystemActorId,
-            .AffectedComponent = "App",
-            .Outcome = Audit.AuditOutcome.Success,
-            .CorrelationId = correlationId,
-            .ReasonCode = $"StartupWindowShown:{w.GetType().Name};Mode={decision.Mode};DbPath={decision.DbPath}"
-        })
+        .EventType = Audit.AuditEventType.SystemStartup,
+        .ActorType = Audit.ActorType.System,
+        .ActorId = SystemActorId,
+        .AffectedComponent = "App",
+        .Outcome = Audit.AuditOutcome.Success,
+        .CorrelationId = correlationId,
+        .ReasonCode = $"StartupWindowShown:{w.GetType().Name};Mode={decision.Mode};DbPath={decision.DbPath}"
+    })
 
         End Sub
 
@@ -93,10 +85,10 @@ Namespace SmartLockerKiosk
 
         Private Function DetermineStartupMode(correlationId As String) As StartupDecision
             Dim decision As New StartupDecision With {
-            .Mode = StartupMode.Commissioning,
-            .DbPath = "",
-            .IsCommissioned = False
-        }
+        .Mode = StartupMode.Commissioning,
+        .DbPath = "",
+        .IsCommissioned = False
+    }
 
             Try
                 Using db = DatabaseBootstrapper.BuildDbContext()
@@ -105,35 +97,36 @@ Namespace SmartLockerKiosk
 
                     EnsureKioskStateRow(db)
 
-                    Dim row = db.KioskState.AsNoTracking().SingleOrDefault()
-                    decision.IsCommissioned = (row IsNot Nothing AndAlso row.IsCommissioned)
+                    Dim row = db.KioskState.AsNoTracking().
+                OrderByDescending(Function(x) x.LastUpdatedUtc).
+                FirstOrDefault()
 
+                    decision.IsCommissioned = (row IsNot Nothing AndAlso row.IsCommissioned)
                     decision.Mode = If(decision.IsCommissioned, StartupMode.Operational, StartupMode.Commissioning)
 
                     SafeAudit(New Audit.AuditEvent With {
-                    .EventType = Audit.AuditEventType.SystemStartup,
-                    .ActorType = Audit.ActorType.System,
-                    .ActorId = SystemActorId,
-                    .AffectedComponent = "App",
-                    .Outcome = Audit.AuditOutcome.Success,
-                    .CorrelationId = correlationId,
-                    .ReasonCode = $"KioskStateEvaluated:IsCommissioned={decision.IsCommissioned};DbPath={decision.DbPath}"
-                })
+                .EventType = Audit.AuditEventType.SystemStartup,
+                .ActorType = Audit.ActorType.System,
+                .ActorId = SystemActorId,
+                .AffectedComponent = "App",
+                .Outcome = Audit.AuditOutcome.Success,
+                .CorrelationId = correlationId,
+                .ReasonCode = $"KioskStateEvaluated:IsCommissioned={decision.IsCommissioned};DbPath={decision.DbPath}"
+            })
 
                 End Using
 
             Catch ex As Exception
                 SafeAudit(New Audit.AuditEvent With {
-                .EventType = Audit.AuditEventType.SystemStartup,
-                .ActorType = Audit.ActorType.System,
-                .ActorId = SystemActorId,
-                .AffectedComponent = "App",
-                .Outcome = Audit.AuditOutcome.Error,
-                .CorrelationId = correlationId,
-                .ReasonCode = $"KioskStateEvalFailed:{ex.GetType().Name};Fallback=Commissioning"
-            })
+            .EventType = Audit.AuditEventType.SystemStartup,
+            .ActorType = Audit.ActorType.System,
+            .ActorId = SystemActorId,
+            .AffectedComponent = "App",
+            .Outcome = Audit.AuditOutcome.Error,
+            .CorrelationId = correlationId,
+            .ReasonCode = $"KioskStateEvalFailed:{ex.GetType().Name};Fallback=Commissioning"
+        })
 
-                ' Fail-safe: commissioning prevents live runtime on unknown config
                 decision.Mode = StartupMode.Commissioning
                 decision.IsCommissioned = False
             End Try
@@ -142,16 +135,24 @@ Namespace SmartLockerKiosk
         End Function
 
         Private Function CreateStartupWindow(decision As StartupDecision) As Window
+            If decision Is Nothing Then Throw New ArgumentNullException(NameOf(decision))
+
             Select Case decision.Mode
                 Case StartupMode.Operational
-                    Return New LockerAccessWindow()
+                    Dim lockerController As New LockerControllerService()
+                    lockerController.ConnectBranch("A")
+                    Try
+                        lockerController.ConnectBranch("B")
+                    Catch ex As InvalidOperationException
+                        ' Branch B not configured yet; ignore for now
+                    End Try
+                    Return New LockerAccessWindow(lockerController)
 
                 Case Else
-                    ' Commissioning requires no admin password, but we still want an audit actor id.
                     Return New CommissioningAccessWindow() With {
-                    .ActorId = BootstrapCommissioningActorId,
-                    .KioskId = AppSettings.KioskID
-                }
+                .ActorId = BootstrapCommissioningActorId,
+                .KioskId = AppSettings.KioskID
+            }
             End Select
         End Function
 
@@ -168,12 +169,15 @@ Namespace SmartLockerKiosk
         ' DB row creation
         ' -------------------------
         Private Sub EnsureKioskStateRow(db As KioskDbContext)
-            Dim row = db.KioskState.SingleOrDefault()
+            Dim row = db.KioskState.
+        OrderByDescending(Function(x) x.LastUpdatedUtc).
+        FirstOrDefault()
+
             If row Is Nothing Then
                 db.KioskState.Add(New KioskState With {
-                .IsCommissioned = False,
-                .LastUpdatedUtc = DateTime.UtcNow
-            })
+            .IsCommissioned = False,
+            .LastUpdatedUtc = DateTime.UtcNow
+        })
                 db.SaveChanges()
             End If
         End Sub

@@ -202,7 +202,7 @@
 
                         <TextBlock Grid.Row="1" Grid.Column="0"
                            Style="{StaticResource LabelStyle}"
-                           Text="Branch B (optional):"
+                           Text="Branch B (required if multiple controllers detected):"
                            Margin="0,0,14,0"/>
 
                         <ComboBox x:Name="BranchBComboBox"
@@ -215,7 +215,7 @@
                        Opacity="0.75"
                        FontSize="18"
                        Margin="0,14,0,0"
-                       Text="Branch A must be set before locker mapping can proceed. Branch B can be left blank if disabled."/>
+                       Text="Branch A is required. If multiple controllers are detected, Branch B must also be assigned."/>
                 </Grid>
 
                 <!-- Actions -->

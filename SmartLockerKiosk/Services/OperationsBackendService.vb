@@ -6,295 +6,419 @@ Imports System.Text.Json
 Imports System.Text.Json.Serialization
 Imports System.Threading
 Imports System.Threading.Tasks
-Imports SmartLockerKiosk.SmartLockerKiosk
 
-Public Class OperationsBackendService
-    Implements IOperationsBackendService
+Namespace SmartLockerKiosk
 
-    Private Shared ReadOnly _http As New HttpClient()
+    Public Class OperationsBackendService
+        Implements IOperationsBackendService
 
-    Private Shared ReadOnly _jsonOpts As New JsonSerializerOptions With {
-        .PropertyNameCaseInsensitive = True
-    }
+        Private ReadOnly _http As HttpClient
+        Private ReadOnly _jsonOpts As JsonSerializerOptions
 
-    Shared Sub New()
-        _jsonOpts.Converters.Add(New JsonStringEnumConverter())
-    End Sub
+        Private Const AssignLockerPath As String = "v1/workorders/assign-locker"
 
-    Public Async Function AuthorizeAsync(
-        credential As String,
-        purpose As AuthPurpose,
-        source As String,
-        ct As CancellationToken
-    ) As Task(Of AuthResult) Implements IOperationsBackendService.AuthorizeAsync
+        Public Sub New(http As HttpClient)
+            If http Is Nothing Then Throw New ArgumentNullException(NameOf(http))
 
-        Dim value = (If(credential, "")).Trim()
-        If value.Length = 0 Then
-            Return New AuthResult With {
+            _http = http
+
+            _jsonOpts = New JsonSerializerOptions With {
+                .PropertyNameCaseInsensitive = True
+            }
+            _jsonOpts.Converters.Add(New JsonStringEnumConverter())
+        End Sub
+        Public Async Function AuthorizeAsync(
+            credential As String,
+            purpose As AuthPurpose,
+            source As String,
+            ct As CancellationToken
+        ) As Task(Of AuthResult) Implements IOperationsBackendService.AuthorizeAsync
+
+            Dim value = (If(credential, "")).Trim()
+
+            If value.Length = 0 Then
+                Return New AuthResult With {
+                    .IsAuthorized = False,
+                    .Purpose = purpose,
+                    .Message = "Empty credential."
+                }
+            End If
+
+            If AppSettings.TestModeEnabled Then
+                Return BuildTestAuthResult(value, purpose)
+            End If
+
+            AppSettings.RequireBackendConfig()
+
+            Dim requestId = Guid.NewGuid().ToString("N")
+            Dim credentialType = MapCredentialTypeForBackend(source)
+            Dim backendPurpose = MapPurposeForBackend(purpose)
+
+            Dim req As New AuthorizeRequest With {
+                .credential = value,
+                .credentialType = credentialType,
+                .purpose = backendPurpose,
+                .kioskId = AppSettings.KioskID,
+                .locationId = AppSettings.LocationId,
+                .timestampUtc = DateTime.UtcNow,
+                .requestId = requestId
+            }
+
+            Dim json = JsonSerializer.Serialize(req, _jsonOpts)
+
+            Using msg = CreateJsonRequest(HttpMethod.Post, ApiRoutes.AuthAuthorize, requestId, json)
+                Using resp = Await _http.SendAsync(msg, ct)
+                    Dim body = Await resp.Content.ReadAsStringAsync()
+
+                    If Not resp.IsSuccessStatusCode Then
+                        Dim errMsg = ExtractBackendErrorMessage(body, resp)
+
+                        Return New AuthResult With {
+                            .IsAuthorized = False,
+                            .Purpose = purpose,
+                            .Message = errMsg
+                        }
+                    End If
+
+                    Dim dto = JsonSerializer.Deserialize(Of AuthorizeResponseDto)(body, _jsonOpts)
+
+                    Dim result As New AuthResult With {
+                        .IsAuthorized = (dto IsNot Nothing AndAlso dto.isAuthorized),
+                        .Purpose = purpose,
+                        .UserId = If(dto IsNot Nothing, dto.userId, Nothing),
+                        .DisplayName = If(dto IsNot Nothing, dto.displayName, Nothing),
+                        .Message = If(dto IsNot Nothing AndAlso dto.isAuthorized, "OK", "Credential not recognized"),
+                        .SessionToken = If(dto IsNot Nothing, dto.sessionToken, Nothing),
+                        .WorkOrders = New List(Of WorkOrderAuthItem)()
+                    }
+
+                    If dto IsNot Nothing AndAlso dto.workOrders IsNot Nothing Then
+                        For Each w In dto.workOrders
+                            result.WorkOrders.Add(New WorkOrderAuthItem With {
+                                .WorkOrderNumber = w.workOrderNumber,
+                                .TransactionType = w.transactionType,
+                                .LockerNumber = w.lockerNumber,
+                                .AllowedSizeCode = w.allowedSizeCode
+                            })
+                        Next
+                    End If
+
+                    Return result
+                End Using
+            End Using
+        End Function
+        Public Async Function ReserveLockerAsync(
+            workOrderNumber As String,
+            requestedLockerNumber As String,
+            bearerToken As String,
+            ct As CancellationToken
+        ) As Task(Of Boolean) Implements IOperationsBackendService.ReserveLockerAsync
+
+            If String.IsNullOrWhiteSpace(bearerToken) Then Return False
+            If String.IsNullOrWhiteSpace(workOrderNumber) Then Return False
+            If String.IsNullOrWhiteSpace(requestedLockerNumber) Then Return False
+
+            If AppSettings.TestModeEnabled Then
+                Return True
+            End If
+
+            AppSettings.RequireBackendConfig()
+
+            Dim requestId = Guid.NewGuid().ToString("N")
+
+            Dim req As New AssignLockerRequest With {
+                .workOrderNumber = workOrderNumber.Trim(),
+                .kioskId = AppSettings.KioskID,
+                .locationId = AppSettings.LocationId,
+                .requestedLockerNumber = requestedLockerNumber.Trim(),
+                .timestampUtc = DateTime.UtcNow,
+                .requestId = requestId
+            }
+
+            Dim json = JsonSerializer.Serialize(req, _jsonOpts)
+
+            Using msg = CreateJsonRequest(HttpMethod.Post, AssignLockerPath, requestId, json, bearerToken)
+                Using resp = Await _http.SendAsync(msg, ct)
+                    If resp.StatusCode = HttpStatusCode.Conflict Then Return False
+                    Return resp.IsSuccessStatusCode
+                End Using
+            End Using
+        End Function
+        Public Async Function CommitDeliveryAsync(
+            dto As DeliveryCommitRequestDto,
+            bearerToken As String,
+            ct As CancellationToken
+        ) As Task Implements IOperationsBackendService.CommitDeliveryAsync
+
+            If dto Is Nothing Then Throw New ArgumentNullException(NameOf(dto))
+            If String.IsNullOrWhiteSpace(dto.workOrderNumber) Then Throw New ArgumentException("workOrderNumber is required.")
+            If String.IsNullOrWhiteSpace(dto.sizeCode) Then Throw New ArgumentException("sizeCode is required.")
+            If String.IsNullOrWhiteSpace(dto.lockerNumber) Then Throw New ArgumentException("lockerNumber is required.")
+
+            If AppSettings.TestModeEnabled Then Return
+
+            AppSettings.RequireBackendConfig()
+
+            Dim requestId = If(String.IsNullOrWhiteSpace(dto.requestId), Guid.NewGuid().ToString("N"), dto.requestId)
+
+            dto.requestId = requestId
+            dto.timestampUtc = If(String.IsNullOrWhiteSpace(dto.timestampUtc), DateTime.UtcNow.ToString("o"), dto.timestampUtc)
+            dto.kioskId = AppSettings.KioskID
+            dto.locationId = AppSettings.LocationId
+
+            Dim json = JsonSerializer.Serialize(dto, _jsonOpts)
+
+            Using msg = CreateJsonRequest(HttpMethod.Post, ApiRoutes.AuthWorkOrder, requestId, json, bearerToken)
+                Using resp = Await _http.SendAsync(msg, ct)
+                    Dim body = Await resp.Content.ReadAsStringAsync()
+
+                    If resp.IsSuccessStatusCode Then Return
+
+                    If resp.StatusCode = HttpStatusCode.Conflict Then Return
+
+                    If resp.StatusCode = HttpStatusCode.Unauthorized OrElse resp.StatusCode = HttpStatusCode.Forbidden Then
+                        Throw New InvalidOperationException($"Commit unauthorized ({CInt(resp.StatusCode)}).")
+                    End If
+
+                    If resp.StatusCode = HttpStatusCode.NotFound Then
+                        Throw New InvalidOperationException("Commit endpoint not found (404).")
+                    End If
+
+                    Throw New InvalidOperationException($"Commit failed ({CInt(resp.StatusCode)}): {Truncate(body, 300)}")
+                End Using
+            End Using
+        End Function
+        Private Function BuildTestAuthResult(credential As String, purpose As AuthPurpose) As AuthResult
+            Dim result As New AuthResult With {
                 .IsAuthorized = False,
                 .Purpose = purpose,
-                .Message = "Empty credential."
+                .Message = "Credential not recognized (test mode).",
+                .WorkOrders = New List(Of WorkOrderAuthItem)()
             }
-        End If
 
-        If AppSettings.TestModeEnabled Then
-            Return BuildTestAuthResult(value, purpose)
-        End If
+            Select Case purpose
+                Case AuthPurpose.AdminAccess
+                    If credential.Equals((If(AppSettings.TestAdminCredential, "")).Trim(), StringComparison.OrdinalIgnoreCase) Then
+                        result.IsAuthorized = True
+                        result.UserId = "TEST-ADMIN"
+                        result.DisplayName = "Test Admin"
+                        result.SessionToken = "TEST-TOKEN-" & Guid.NewGuid().ToString("N")
+                        result.Message = "OK (test admin)"
+                    End If
 
-        AppSettings.RequireBackendConfig()
+                Case AuthPurpose.DeliveryCourierAuth
+                    If credential.Equals((If(AppSettings.TestCourierCredential, "")).Trim(), StringComparison.OrdinalIgnoreCase) Then
+                        result.IsAuthorized = True
+                        result.UserId = "TEST-COURIER"
+                        result.DisplayName = "Test Courier"
+                        result.SessionToken = "TEST-TOKEN-" & Guid.NewGuid().ToString("N")
+                        result.Message = "OK (test courier)"
+                    End If
 
-        Dim requestId = Guid.NewGuid().ToString("N")
-        Dim credentialType = MapCredentialTypeForBackend(source)
-        Dim backendPurpose = MapPurposeForBackend(purpose)
-
-        Dim req As New AuthorizeRequest With {
-            .credential = value,
-            .credentialType = credentialType,
-            .purpose = backendPurpose,
-            .kioskId = AppSettings.KioskID,
-            .locationId = AppSettings.LocationId,
-            .timestampUtc = DateTime.UtcNow,
-            .requestId = requestId
-        }
-
-        Dim json = JsonSerializer.Serialize(req, _jsonOpts)
-
-        Using msg = CreateJsonRequest(HttpMethod.Post, ApiRoutes.AuthAuthorize, requestId, json)
-            Using resp = Await _http.SendAsync(msg, ct)
-                Dim body = Await resp.Content.ReadAsStringAsync()
-
-                If Not resp.IsSuccessStatusCode Then
-                    Dim errMsg = ExtractBackendErrorMessage(body, resp)
-                    Return New AuthResult With {
-                        .IsAuthorized = False,
-                        .Purpose = purpose,
-                        .Message = errMsg
-                    }
-                End If
-
-                Dim dto = JsonSerializer.Deserialize(Of AuthorizeResponseDto)(body, _jsonOpts)
-
-                Dim result As New AuthResult With {
-                    .IsAuthorized = (dto IsNot Nothing AndAlso dto.isAuthorized),
-                    .Purpose = purpose,
-                    .UserId = If(dto IsNot Nothing, dto.userId, Nothing),
-                    .DisplayName = If(dto IsNot Nothing, dto.displayName, Nothing),
-                    .Message = If(dto IsNot Nothing AndAlso dto.isAuthorized, "OK", "Credential not recognized"),
-                    .SessionToken = If(dto IsNot Nothing, dto.sessionToken, Nothing),
-                    .WorkOrders = New List(Of WorkOrderAuthItem)()
-                }
-
-                If dto IsNot Nothing AndAlso dto.workOrders IsNot Nothing Then
-                    For Each w In dto.workOrders
+                Case AuthPurpose.PickupAccess
+                    If credential.Equals((If(AppSettings.TestPickupCredential, "")).Trim(), StringComparison.OrdinalIgnoreCase) Then
+                        result.IsAuthorized = True
+                        result.UserId = "TEST-PICKUP"
+                        result.DisplayName = "Test User"
+                        result.SessionToken = "TEST-TOKEN-" & Guid.NewGuid().ToString("N")
+                        result.Message = "OK (test pickup)"
                         result.WorkOrders.Add(New WorkOrderAuthItem With {
-                            .WorkOrderNumber = w.workOrderNumber,
-                            .TransactionType = w.transactionType,
-                            .LockerNumber = w.lockerNumber,
-                            .AllowedSizeCode = w.allowedSizeCode
+                            .WorkOrderNumber = AppSettings.TestWorkOrder,
+                            .TransactionType = "Pickup",
+                            .LockerNumber = AppSettings.TestPickupLockerNumber,
+                            .AllowedSizeCode = ""
                         })
-                    Next
-                End If
+                    End If
+            End Select
 
-                Return result
-            End Using
-        End Using
-    End Function
+            Return result
+        End Function
+        Private Function CreateJsonRequest(
+            method As HttpMethod,
+            relativePath As String,
+            requestId As String,
+            jsonBody As String,
+            Optional bearerToken As String = Nothing
+        ) As HttpRequestMessage
 
-    Public Async Function ReserveLockerAsync(
-        workOrderNumber As String,
-        requestedLockerNumber As String,
-        bearerToken As String,
-        ct As CancellationToken
-    ) As Task(Of Boolean) Implements IOperationsBackendService.ReserveLockerAsync
+            AppSettings.RequireBackendConfig()
 
-        If String.IsNullOrWhiteSpace(bearerToken) Then Return False
-        If String.IsNullOrWhiteSpace(workOrderNumber) Then Return False
-        If String.IsNullOrWhiteSpace(requestedLockerNumber) Then Return False
+            Dim path = (If(relativePath, "")).Trim().TrimStart("/"c)
 
-        If AppSettings.TestModeEnabled Then
-            Return True
-        End If
+            Dim msg As New HttpRequestMessage(method, New Uri(path, UriKind.Relative))
+            msg.Headers.Add("X-Request-Id", requestId)
+            msg.Headers.Add("X-Kiosk-Id", AppSettings.KioskID)
+            msg.Headers.Add("X-Api-Key", AppSettings.DeviceApiKey)
 
-        AppSettings.RequireBackendConfig()
-
-        Dim requestId = Guid.NewGuid().ToString("N")
-
-        Dim req As New AssignLockerRequest With {
-            .workOrderNumber = workOrderNumber.Trim(),
-            .kioskId = AppSettings.KioskID,
-            .locationId = AppSettings.LocationId,
-            .requestedLockerNumber = requestedLockerNumber.Trim(),
-            .timestampUtc = DateTime.UtcNow,
-            .requestId = requestId
-        }
-
-        Dim json = JsonSerializer.Serialize(req, _jsonOpts)
-
-        Using msg = CreateJsonRequest(HttpMethod.Post, "v1/workorders/assign-locker", requestId, json, bearerToken)
-            Using resp = Await _http.SendAsync(msg, ct)
-                If resp.StatusCode = HttpStatusCode.Conflict Then Return False
-                Return resp.IsSuccessStatusCode
-            End Using
-        End Using
-    End Function
-
-    Public Async Function CommitDeliveryAsync(
-        dto As DeliveryCommitRequestDto,
-        bearerToken As String,
-        ct As CancellationToken
-    ) As Task Implements IOperationsBackendService.CommitDeliveryAsync
-
-        If dto Is Nothing Then Throw New ArgumentNullException(NameOf(dto))
-        If String.IsNullOrWhiteSpace(dto.workOrderNumber) Then Throw New ArgumentException("workOrderNumber is required.")
-        If String.IsNullOrWhiteSpace(dto.sizeCode) Then Throw New ArgumentException("sizeCode is required.")
-        If String.IsNullOrWhiteSpace(dto.lockerNumber) Then Throw New ArgumentException("lockerNumber is required.")
-
-        If AppSettings.TestModeEnabled Then Return
-
-        AppSettings.RequireBackendConfig()
-
-        Dim requestId = If(String.IsNullOrWhiteSpace(dto.requestId), Guid.NewGuid().ToString("N"), dto.requestId)
-        dto.requestId = requestId
-        dto.timestampUtc = If(String.IsNullOrWhiteSpace(dto.timestampUtc), DateTime.UtcNow.ToString("o"), dto.timestampUtc)
-        dto.kioskId = AppSettings.KioskID
-        dto.locationId = AppSettings.LocationId
-
-        Dim json = JsonSerializer.Serialize(dto, _jsonOpts)
-
-        Using msg = CreateJsonRequest(HttpMethod.Post, ApiRoutes.AuthWorkOrder, requestId, json, bearerToken)
-            Using resp = Await _http.SendAsync(msg, ct)
-                Dim body = Await resp.Content.ReadAsStringAsync()
-
-                If resp.IsSuccessStatusCode Then Return
-
-                If resp.StatusCode = HttpStatusCode.Conflict Then Return
-
-                If resp.StatusCode = HttpStatusCode.Unauthorized OrElse resp.StatusCode = HttpStatusCode.Forbidden Then
-                    Throw New InvalidOperationException($"Commit unauthorized ({CInt(resp.StatusCode)}).")
-                End If
-
-                If resp.StatusCode = HttpStatusCode.NotFound Then
-                    Throw New InvalidOperationException($"Commit endpoint not found (404).")
-                End If
-
-                Throw New InvalidOperationException($"Commit failed ({CInt(resp.StatusCode)}): {Truncate(body, 300)}")
-            End Using
-        End Using
-    End Function
-
-    Private Shared Function BuildTestAuthResult(credential As String, purpose As AuthPurpose) As AuthResult
-        Dim result As New AuthResult With {
-            .IsAuthorized = False,
-            .Purpose = purpose,
-            .Message = "Credential not recognized (test mode).",
-            .WorkOrders = New List(Of WorkOrderAuthItem)()
-        }
-
-        Select Case purpose
-            Case AuthPurpose.AdminAccess
-                If credential.Equals((If(AppSettings.TestAdminCredential, "")).Trim(), StringComparison.OrdinalIgnoreCase) Then
-                    result.IsAuthorized = True
-                    result.UserId = "TEST-ADMIN"
-                    result.DisplayName = "Test Admin"
-                    result.SessionToken = "TEST-TOKEN-" & Guid.NewGuid().ToString("N")
-                    result.Message = "OK (test admin)"
-                End If
-
-            Case AuthPurpose.DeliveryCourierAuth
-                If credential.Equals((If(AppSettings.TestCourierCredential, "")).Trim(), StringComparison.OrdinalIgnoreCase) Then
-                    result.IsAuthorized = True
-                    result.UserId = "TEST-COURIER"
-                    result.DisplayName = "Test Courier"
-                    result.SessionToken = "TEST-TOKEN-" & Guid.NewGuid().ToString("N")
-                    result.Message = "OK (test courier)"
-                End If
-
-            Case AuthPurpose.PickupAccess
-                If credential.Equals((If(AppSettings.TestPickupCredential, "")).Trim(), StringComparison.OrdinalIgnoreCase) Then
-                    result.IsAuthorized = True
-                    result.UserId = "TEST-PICKUP"
-                    result.DisplayName = "Test User"
-                    result.SessionToken = "TEST-TOKEN-" & Guid.NewGuid().ToString("N")
-                    result.Message = "OK (test pickup)"
-                    result.WorkOrders.Add(New WorkOrderAuthItem With {
-                        .WorkOrderNumber = AppSettings.TestWorkOrder,
-                        .TransactionType = "Pickup",
-                        .LockerNumber = AppSettings.TestPickupLockerNumber,
-                        .AllowedSizeCode = ""
-                    })
-                End If
-        End Select
-
-        Return result
-    End Function
-
-    Private Shared Function CreateJsonRequest(
-        method As HttpMethod,
-        relativePath As String,
-        requestId As String,
-        jsonBody As String,
-        Optional bearerToken As String = Nothing
-    ) As HttpRequestMessage
-
-        AppSettings.RequireBackendConfig()
-
-        If _http.BaseAddress Is Nothing Then
-            Dim baseUrl = (If(AppSettings.BaseApiUrl, "")).Trim()
-            If Not baseUrl.EndsWith("/") Then baseUrl &= "/"
-            _http.BaseAddress = New Uri(baseUrl, UriKind.Absolute)
-        End If
-
-        Dim path = (If(relativePath, "")).Trim().TrimStart("/"c)
-
-        Dim msg As New HttpRequestMessage(method, New Uri(path, UriKind.Relative))
-        msg.Headers.Add("X-Request-Id", requestId)
-        msg.Headers.Add("X-Kiosk-Id", AppSettings.KioskID)
-        msg.Headers.Add("X-Api-Key", AppSettings.DeviceApiKey)
-
-        If Not String.IsNullOrWhiteSpace(bearerToken) Then
-            msg.Headers.Authorization = New AuthenticationHeaderValue("Bearer", bearerToken)
-        End If
-
-        msg.Content = New StringContent(jsonBody, Encoding.UTF8, "application/json")
-        Return msg
-    End Function
-
-    Private Shared Function MapPurposeForBackend(p As AuthPurpose) As String
-        Select Case p
-            Case AuthPurpose.PickupAccess
-                Return "Pickup"
-            Case AuthPurpose.DeliveryCourierAuth
-                Return "Deliver"
-            Case AuthPurpose.AdminAccess
-                Return "Admin"
-            Case AuthPurpose.DayUseStart
-                Return "DayUse"
-            Case Else
-                Return "Pickup"
-        End Select
-    End Function
-
-    Private Shared Function MapCredentialTypeForBackend(source As String) As String
-        Dim s = (If(source, "")).Trim().ToUpperInvariant()
-        If s = "KEYPAD" Then Return "Pin"
-        Return "Badge"
-    End Function
-
-    Private Shared Function ExtractBackendErrorMessage(body As String, resp As HttpResponseMessage) As String
-        Try
-            Dim err = JsonSerializer.Deserialize(Of BackendErrorDto)(body, _jsonOpts)
-            If err IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(err.message) Then
-                Return err.message & $" (HTTP {CInt(resp.StatusCode)})"
+            If Not String.IsNullOrWhiteSpace(bearerToken) Then
+                msg.Headers.Authorization = New AuthenticationHeaderValue("Bearer", bearerToken)
             End If
-        Catch
-        End Try
 
-        Return $"Request failed (HTTP {CInt(resp.StatusCode)})."
-    End Function
+            msg.Content = New StringContent(jsonBody, Encoding.UTF8, "application/json")
+            Return msg
+        End Function
+        Private Function MapPurposeForBackend(p As AuthPurpose) As String
+            Select Case p
+                Case AuthPurpose.PickupAccess
+                    Return "Pickup"
+                Case AuthPurpose.DeliveryCourierAuth
+                    Return "Deliver"
+                Case AuthPurpose.AdminAccess
+                    Return "Admin"
+                Case AuthPurpose.DayUseStart
+                    Return "DayUseStart"
+                Case Else
+                    Return p.ToString()
+            End Select
+        End Function
+        Private Function MapCredentialTypeForBackend(source As String) As String
+            Dim s = (If(source, "")).Trim()
 
-    Private Shared Function Truncate(s As String, maxLen As Integer) As String
-        Dim t = If(s, "")
-        If t.Length <= maxLen Then Return t
-        Return t.Substring(0, maxLen)
-    End Function
-End Class
+            If s.Length = 0 Then Return "Unknown"
+
+            Select Case s.ToUpperInvariant()
+                Case "MANUAL"
+                    Return "ManualEntry"
+                Case "BARCODE"
+                    Return "Barcode"
+                Case "QR"
+                    Return "QrCode"
+                Case "RFID"
+                    Return "Rfid"
+                Case "NFC"
+                    Return "Nfc"
+                Case Else
+                    Return s
+            End Select
+        End Function
+        Private Function ExtractBackendErrorMessage(body As String, resp As HttpResponseMessage) As String
+            If Not String.IsNullOrWhiteSpace(body) Then
+                Try
+                    Dim apiErr = JsonSerializer.Deserialize(Of ApiErrorDto)(body, _jsonOpts)
+                    If apiErr IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(apiErr.message) Then
+                        Return apiErr.message
+                    End If
+                Catch
+                End Try
+
+                Return Truncate(body, 300)
+            End If
+
+            Return $"Authorization failed ({CInt(resp.StatusCode)})."
+        End Function
+        Private Function Truncate(value As String, maxLen As Integer) As String
+            If String.IsNullOrEmpty(value) Then Return ""
+            If value.Length <= maxLen Then Return value
+            Return value.Substring(0, maxLen) & "..."
+        End Function
+
+        Public Async Function AuthorizeLockerActionAsync(
+    dto As LockerAuthorizeRequestDto,
+    bearerToken As String,
+    ct As CancellationToken
+) As Task(Of LockerAuthorizeResponseDto) Implements IOperationsBackendService.AuthorizeLockerActionAsync
+
+            If dto Is Nothing Then Throw New ArgumentNullException(NameOf(dto))
+            If String.IsNullOrWhiteSpace(dto.requestId) Then Throw New ArgumentException("requestId is required.")
+            If String.IsNullOrWhiteSpace(dto.correlationId) Then Throw New ArgumentException("correlationId is required.")
+            If String.IsNullOrWhiteSpace(dto.requestedBy) Then Throw New ArgumentException("requestedBy is required.")
+            If String.IsNullOrWhiteSpace(dto.siteCode) Then Throw New ArgumentException("siteCode is required.")
+            If String.IsNullOrWhiteSpace(dto.lockerBankId) Then Throw New ArgumentException("lockerBankId is required.")
+            If String.IsNullOrWhiteSpace(dto.lockerId) Then Throw New ArgumentException("lockerId is required.")
+            If String.IsNullOrWhiteSpace(dto.doorId) Then Throw New ArgumentException("doorId is required.")
+            If String.IsNullOrWhiteSpace(dto.actionType) Then Throw New ArgumentException("actionType is required.")
+
+            If AppSettings.TestModeEnabled Then
+                Return BuildTestLockerAuthorizeResponse(dto)
+            End If
+
+            AppSettings.RequireBackendConfig()
+
+            Dim json = JsonSerializer.Serialize(dto, _jsonOpts)
+
+            Using msg = CreateJsonRequest(HttpMethod.Post, ApiRoutes.LockerAuthorize, dto.requestId, json, bearerToken)
+                Using resp = Await _http.SendAsync(msg, ct)
+                    Dim body = Await resp.Content.ReadAsStringAsync()
+
+                    If Not resp.IsSuccessStatusCode Then
+                        Dim errMsg = ExtractBackendErrorMessage(body, resp)
+                        Throw New InvalidOperationException(errMsg)
+                    End If
+
+                    Dim result = JsonSerializer.Deserialize(Of LockerAuthorizeResponseDto)(body, _jsonOpts)
+                    If result Is Nothing Then
+                        Throw New InvalidOperationException("Locker authorize response was empty.")
+                    End If
+
+                    Return result
+                End Using
+            End Using
+
+        End Function
+
+        Public Async Function AckLockerActionAsync(
+            dto As LockerAckRequestDto,
+            bearerToken As String,
+            ct As CancellationToken
+        ) As Task Implements IOperationsBackendService.AckLockerActionAsync
+
+            If dto Is Nothing Then Throw New ArgumentNullException(NameOf(dto))
+            If String.IsNullOrWhiteSpace(dto.transactionId) Then Throw New ArgumentException("transactionId is required.")
+            If String.IsNullOrWhiteSpace(dto.commandId) Then Throw New ArgumentException("commandId is required.")
+            If String.IsNullOrWhiteSpace(dto.correlationId) Then Throw New ArgumentException("correlationId is required.")
+            If String.IsNullOrWhiteSpace(dto.ackStatus) Then Throw New ArgumentException("ackStatus is required.")
+
+            If AppSettings.TestModeEnabled Then Return
+
+            AppSettings.RequireBackendConfig()
+
+            If dto.compartmentIds Is Nothing Then
+                dto.compartmentIds = New List(Of String)()
+            End If
+
+            If String.IsNullOrWhiteSpace(dto.adapterName) Then
+                dto.adapterName = AppSettings.AdapterName
+            End If
+
+            Dim requestId = Guid.NewGuid().ToString("N")
+            Dim json = JsonSerializer.Serialize(dto, _jsonOpts)
+
+            Using msg = CreateJsonRequest(HttpMethod.Post, ApiRoutes.LockerAck, requestId, json, bearerToken)
+                Using resp = Await _http.SendAsync(msg, ct)
+                    Dim body = Await resp.Content.ReadAsStringAsync()
+
+                    If resp.IsSuccessStatusCode Then Return
+
+                    If resp.StatusCode = HttpStatusCode.Conflict Then Return
+
+                    If resp.StatusCode = HttpStatusCode.Unauthorized OrElse resp.StatusCode = HttpStatusCode.Forbidden Then
+                        Throw New InvalidOperationException($"ACK unauthorized ({CInt(resp.StatusCode)}).")
+                    End If
+
+                    Throw New InvalidOperationException($"ACK failed ({CInt(resp.StatusCode)}): {Truncate(body, 300)}")
+                End Using
+            End Using
+
+        End Function
+
+        Private Function BuildTestLockerAuthorizeResponse(dto As LockerAuthorizeRequestDto) As LockerAuthorizeResponseDto
+            Return New LockerAuthorizeResponseDto With {
+                .transactionId = "txn_" & Guid.NewGuid().ToString("N"),
+                .status = "dispatched",
+                .executionMode = "simulator",
+                .commandId = "cmd_" & Guid.NewGuid().ToString("N"),
+                .auditEventId = "aud_" & Guid.NewGuid().ToString("N"),
+                .serverTimeUtc = DateTime.UtcNow.ToString("o"),
+                .evidencePointer = $"locker-control/{DateTime.UtcNow:yyyy/MM/dd}/test/{dto.requestId}/authorize-dispatch.json",
+                .integrityHashSha256 = Guid.NewGuid().ToString("N"),
+                .authorization = New LockerAuthorizeAuthorizationDto With {
+                    .isAuthorized = True,
+                    .userId = dto.requestedBy,
+                    .roles = New List(Of String)()
+                }
+            }
+        End Function
+
+    End Class
+
+End Namespace

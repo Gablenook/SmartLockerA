@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Keypad")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+5e784c2f69e549cdac382f09cd6b8f9fc6ede0b7")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+c2c5988f97ad2f79e263769965752d97d5f1e560")]
 [assembly: System.Reflection.AssemblyProductAttribute("Keypad")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Keypad")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

@@ -20,4 +20,16 @@ Public Interface IOperationsBackendService
         bearerToken As String,
         ct As CancellationToken
     ) As Task
+
+    Function AuthorizeLockerActionAsync(
+        dto As LockerAuthorizeRequestDto,
+        bearerToken As String,
+        ct As CancellationToken
+    ) As Task(Of LockerAuthorizeResponseDto)
+
+    Function AckLockerActionAsync(
+        dto As LockerAckRequestDto,
+        bearerToken As String,
+        ct As CancellationToken
+    ) As Task
 End Interface

@@ -50,8 +50,7 @@ Namespace SmartLockerKiosk
         Private _deliverAnotherTcs As TaskCompletionSource(Of Boolean?) = Nothing
         Private _deliverAnotherTimeoutCts As System.Threading.CancellationTokenSource = Nothing
 
-        Private ReadOnly _scanner As New BarcodeScanService()
-
+        Private ReadOnly _barcodeScanService As BarcodeScanService
 
         Shared Sub New()
             _jsonOpts.Converters.Add(New JsonStringEnumConverter())
@@ -67,7 +66,17 @@ Namespace SmartLockerKiosk
             Else
                 _backend = New OperationsBackendService(BackendHttpFactory.CreateHttpClient())
             End If
+
+
+            _barcodeScanService = New BarcodeScanService()
+
+            AddHandler _barcodeScanService.ScanCompleted, AddressOf OnBarcodeScanCompleted
+            AddHandler _barcodeScanService.ScanRejected, AddressOf OnBarcodeScanRejected
+            AddHandler _barcodeScanService.Trace, AddressOf OnBarcodeTrace
+
+            ConfigureBarcodeValidation()
         End Sub
+
         Private Sub LockerAccessWindow_Loaded(sender As Object, e As RoutedEventArgs) Handles Me.Loaded
 
             DatabaseBootstrapper.InitializeDatabase()
@@ -102,16 +111,17 @@ Namespace SmartLockerKiosk
             KeypadControl.SetPasscodeLength(20)
 
             ' Scanner wiring
-            RemoveHandler _scanner.ScanCompleted, AddressOf OnScanCompleted
-            RemoveHandler _scanner.ScanRejected, AddressOf OnScanRejected
-            RemoveHandler _scanner.Trace, AddressOf OnScannerTrace
+            ' Scanner wiring
+            RemoveHandler _barcodeScanService.ScanCompleted, AddressOf OnScanCompleted
+            RemoveHandler _barcodeScanService.ScanRejected, AddressOf OnScanRejected
+            RemoveHandler _barcodeScanService.Trace, AddressOf OnScannerTrace
 
-            AddHandler _scanner.ScanCompleted, AddressOf OnScanCompleted
-            AddHandler _scanner.ScanRejected, AddressOf OnScanRejected
-            AddHandler _scanner.Trace, AddressOf OnScannerTrace
+            AddHandler _barcodeScanService.ScanCompleted, AddressOf OnScanCompleted
+            AddHandler _barcodeScanService.ScanRejected, AddressOf OnScanRejected
+            AddHandler _barcodeScanService.Trace, AddressOf OnScannerTrace
 
-            _scanner.IsEnabled = True
-            _scanner.Reset()
+            _barcodeScanService.IsEnabled = True
+            _barcodeScanService.ResetAll()
 
             ResetToAwaitWorkflowChoice()
 
@@ -166,14 +176,11 @@ Namespace SmartLockerKiosk
         Private Sub Window_PreviewTextInput(sender As Object, e As TextCompositionEventArgs) Handles Me.PreviewTextInput
             If e Is Nothing Then Return
             If String.IsNullOrEmpty(e.Text) Then Return
-
-            _scanner.HandleTextInput(e.Text)
+            _barcodeScanService.HandleTextInput(e.Text)
         End Sub
         Private Sub Window_PreviewKeyDown(sender As Object, e As KeyEventArgs) Handles Me.PreviewKeyDown
             If e Is Nothing Then Return
-
-            _scanner.HandleKeyDown(e.Key)
-
+            _barcodeScanService.HandleKeyDown(e.Key)
             If e.Key = Key.Enter OrElse e.Key = Key.Return Then
                 e.Handled = True
             End If
@@ -1914,7 +1921,98 @@ Namespace SmartLockerKiosk
 
         End Sub
 
+        Private Sub ConfigureBarcodeValidation()
+            _barcodeScanService.Validator =
+                Function(text As String) As ScanValidationResult
 
+                    Dim value = If(text, String.Empty).Trim()
+
+                    If String.IsNullOrWhiteSpace(value) Then
+                        Return ScanValidationResult.Invalid("Barcode is empty.")
+                    End If
+
+                    If Not value.StartsWith("S/N", StringComparison.OrdinalIgnoreCase) Then
+                        Return ScanValidationResult.Invalid("Barcode is not a valid serial number (missing S/N prefix).")
+                    End If
+
+                    If value.Length <= 3 Then
+                        Return ScanValidationResult.Invalid("Serial number barcode is missing a value after S/N.")
+                    End If
+
+                    If value.Length < 6 Then
+                        Return ScanValidationResult.Invalid("Serial number barcode too short.")
+                    End If
+
+                    Dim suffix As String = value.Substring(3).Trim()
+
+                    If String.IsNullOrWhiteSpace(suffix) Then
+                        Return ScanValidationResult.Invalid("Serial number barcode is missing a value after S/N.")
+                    End If
+
+                    For Each ch As Char In suffix
+                        If Not Char.IsLetterOrDigit(ch) AndAlso ch <> "-"c Then
+                            Return ScanValidationResult.Invalid("Invalid characters in serial number.")
+                        End If
+                    Next
+
+                    Return ScanValidationResult.Valid()
+
+                End Function
+
+        End Sub
+        Private Sub OnBarcodeScanCompleted(scanText As String)
+            Try
+                Dispatcher.Invoke(
+                    Sub()
+                        ' Optional success feedback
+                        ' PlaySuccessTone()
+
+                        ' Put your accepted barcode handling here
+                        ' Example:
+                        ' txtScanStatus.Text = $"Accepted: {scanText}"
+
+                        HandleAcceptedBarcode(scanText)
+                    End Sub)
+
+            Catch ex As Exception
+                System.Diagnostics.Debug.WriteLine($"OnBarcodeScanCompleted error: {ex.Message}")
+            End Try
+        End Sub
+        Private Sub OnBarcodeScanRejected(reason As String, rawText As String)
+            Try
+                Dispatcher.Invoke(
+                    Sub()
+                        ' Optional reject feedback
+                        ' PlayErrorTone()
+
+                        ' Example UI feedback
+                        ' txtScanStatus.Text = reason
+
+                        System.Diagnostics.Debug.WriteLine($"Barcode rejected. Reason={reason}; Raw={rawText}")
+                    End Sub)
+
+            Catch ex As Exception
+                System.Diagnostics.Debug.WriteLine($"OnBarcodeScanRejected error: {ex.Message}")
+            End Try
+        End Sub
+        Private Sub OnBarcodeTrace(message As String)
+            Try
+                System.Diagnostics.Debug.WriteLine($"[BarcodeScanService] {message}")
+            Catch
+            End Try
+        End Sub
+        Private Sub HandleAcceptedBarcode(scanText As String)
+            Dim value = If(scanText, String.Empty).Trim()
+
+            If value.StartsWith("S/N", StringComparison.OrdinalIgnoreCase) Then
+                value = value.Substring(3).Trim()
+            End If
+
+            System.Diagnostics.Debug.WriteLine($"Accepted barcode: {value}")
+
+            ' TODO:
+            ' Put your real serial number workflow here.
+        End Sub
     End Class
 End Namespace
 

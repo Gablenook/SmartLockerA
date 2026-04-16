@@ -92,21 +92,34 @@ Public Class KioskDbContext
         modelBuilder.Entity(Of LockerStatus)(
         Sub(e)
 
-            ' PK
+            ' =========================
+            ' Primary Key
+            ' =========================
             e.HasKey(Function(x) x.LockerId)
 
-            ' Enums stored as integers (default, but explicit is nice)
-            e.Property(Function(x) x.LockState).HasConversion(Of Integer)()
-            e.Property(Function(x) x.OccupancyState).HasConversion(Of Integer)()
+            ' =========================
+            ' Enum Storage
+            ' =========================
+            e.Property(Function(x) x.LockState).
+                HasConversion(Of Integer)()
 
-            ' Optional flags
-            e.Property(Function(x) x.PackagePresent).IsRequired(False)
+            e.Property(Function(x) x.OccupancyState).
+                HasConversion(Of Integer)()
 
-            ' Timestamps
-            e.Property(Function(x) x.LastUpdatedUtc).IsRequired()
+            ' =========================
+            ' Core State
+            ' =========================
+            e.Property(Function(x) x.PackagePresent).
+                IsRequired(False)
 
-            ' If you add these fields:
-            e.Property(Function(x) x.ReservedUntilUtc).IsRequired(False)
+            e.Property(Function(x) x.LastUpdatedUtc).
+                IsRequired()
+
+            ' =========================
+            ' Reservation / Assignment Safety
+            ' =========================
+            e.Property(Function(x) x.ReservedUntilUtc).
+                IsRequired(False)
 
             e.Property(Function(x) x.ReservedCorrelationId).
                 HasMaxLength(64).
@@ -116,6 +129,9 @@ Public Class KioskDbContext
                 HasMaxLength(64).
                 IsRequired(False)
 
+            ' =========================
+            ' Traceability / Reconciliation
+            ' =========================
             e.Property(Function(x) x.LastWorkOrderNumber).
                 HasMaxLength(64).
                 IsRequired(False)
@@ -128,9 +144,33 @@ Public Class KioskDbContext
                 HasMaxLength(64).
                 IsRequired(False)
 
-            ' Helpful indexes for fast assignment queries
+            ' =========================
+            ' Device / Inventory Tracking
+            ' =========================
+            e.Property(Function(x) x.CurrentDeviceType).
+                HasMaxLength(64).
+                IsRequired(False)
+
+            e.Property(Function(x) x.CurrentAssetTag).
+                HasMaxLength(128).
+                IsRequired(False)
+
+            e.Property(Function(x) x.IsDefectiveHold).
+                IsRequired().
+                HasDefaultValue(False)
+
+            e.Property(Function(x) x.DefectType).
+                HasMaxLength(64).
+                IsRequired(False)
+
+            ' =========================
+            ' Helpful Indexes
+            ' =========================
             e.HasIndex(Function(x) x.OccupancyState)
             e.HasIndex(Function(x) x.ReservedUntilUtc)
+            e.HasIndex(Function(x) x.CurrentDeviceType)
+            e.HasIndex(Function(x) x.CurrentAssetTag)
+            e.HasIndex(Function(x) x.IsDefectiveHold)
 
         End Sub)
 

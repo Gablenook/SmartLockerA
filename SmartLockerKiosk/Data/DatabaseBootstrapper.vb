@@ -1,4 +1,5 @@
-﻿Imports System.Diagnostics
+﻿Imports System.Data
+Imports System.Diagnostics
 Imports System.IO
 Imports Microsoft.EntityFrameworkCore
 Imports SmartLockerKiosk.SmartLockerKiosk
@@ -30,6 +31,9 @@ Public Module DatabaseBootstrapper
             ' Since you are not using migrations yet:
             db.Database.EnsureCreated()
 
+            ' Bring older DB files forward to the current schema.
+            EnsureLockerStatusSchema(db)
+
             ' Seed in a single place; each method is idempotent.
             SeedLockerSizesIfMissing(db)
             SeedLockerStatusesIfMissing(db)
@@ -49,6 +53,90 @@ Public Module DatabaseBootstrapper
         )
 
         db.SaveChanges()
+    End Sub
+    Private Sub SeedKioskStateIfMissing(db As KioskDbContext)
+        Dim kioskId As String = (If(AppSettings.KioskID, "")).Trim()
+        If kioskId.Length = 0 Then Return
+
+        Dim row = db.KioskState.SingleOrDefault(Function(x) x.KioskId = kioskId)
+        If row IsNot Nothing Then Return
+
+        db.KioskState.Add(New KioskState With {
+            .KioskId = kioskId,
+            .LocationId = AppSettings.LocationId,
+            .IsCommissioned = False,
+            .LastUpdatedUtc = DateTime.UtcNow
+       })
+        db.SaveChanges()
+    End Sub
+    Private Sub EnsureLockerStatusSchema(db As KioskDbContext)
+        Dim existingColumns As HashSet(Of String) = GetTableColumns(db, "LockerStatuses")
+
+        AddColumnIfMissing(
+            db,
+            existingColumns,
+            "CurrentDeviceType",
+            "ALTER TABLE LockerStatuses ADD COLUMN CurrentDeviceType TEXT NULL")
+
+        AddColumnIfMissing(
+            db,
+            existingColumns,
+            "CurrentAssetTag",
+            "ALTER TABLE LockerStatuses ADD COLUMN CurrentAssetTag TEXT NULL")
+
+        AddColumnIfMissing(
+            db,
+            existingColumns,
+            "IsDefectiveHold",
+            "ALTER TABLE LockerStatuses ADD COLUMN IsDefectiveHold INTEGER NOT NULL DEFAULT 0")
+
+        AddColumnIfMissing(
+            db,
+            existingColumns,
+            "DefectType",
+            "ALTER TABLE LockerStatuses ADD COLUMN DefectType TEXT NULL")
+
+        db.Database.ExecuteSqlRaw(
+            "CREATE INDEX IF NOT EXISTS IX_LockerStatuses_CurrentDeviceType ON LockerStatuses(CurrentDeviceType)")
+
+        db.Database.ExecuteSqlRaw(
+            "CREATE INDEX IF NOT EXISTS IX_LockerStatuses_CurrentAssetTag ON LockerStatuses(CurrentAssetTag)")
+
+        db.Database.ExecuteSqlRaw(
+            "CREATE INDEX IF NOT EXISTS IX_LockerStatuses_IsDefectiveHold ON LockerStatuses(IsDefectiveHold)")
+    End Sub
+    Private Function GetTableColumns(db As KioskDbContext, tableName As String) As HashSet(Of String)
+        Dim result As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+
+        Using conn = db.Database.GetDbConnection()
+            If conn.State <> ConnectionState.Open Then
+                conn.Open()
+            End If
+
+            Using cmd = conn.CreateCommand()
+                cmd.CommandText = $"PRAGMA table_info({tableName});"
+
+                Using reader = cmd.ExecuteReader()
+                    While reader.Read()
+                        Dim ordinal As Integer = reader.GetOrdinal("name")
+                        If Not reader.IsDBNull(ordinal) Then
+                            result.Add(reader.GetString(ordinal))
+                        End If
+                    End While
+                End Using
+            End Using
+        End Using
+
+        Return result
+    End Function
+    Private Sub AddColumnIfMissing(db As KioskDbContext,
+                               existingColumns As HashSet(Of String),
+                               columnName As String,
+                               alterSql As String)
+        If existingColumns.Contains(columnName) Then Return
+
+        db.Database.ExecuteSqlRaw(alterSql)
+        existingColumns.Add(columnName)
     End Sub
     Private Sub SeedLockerStatusesIfMissing(db As KioskDbContext)
 
@@ -70,6 +158,11 @@ Public Module DatabaseBootstrapper
                     .LockerId = id,
                     .LockState = LockState.Unknown,
                     .OccupancyState = OccupancyState.Unknown,
+                    .PackagePresent = Nothing,
+                    .CurrentDeviceType = Nothing,
+                    .CurrentAssetTag = Nothing,
+                    .IsDefectiveHold = False,
+                    .DefectType = Nothing,
                     .LastUpdatedUtc = nowUtc
                 })
                 added += 1
@@ -79,22 +172,6 @@ Public Module DatabaseBootstrapper
         If added > 0 Then db.SaveChanges()
 
     End Sub
-    Private Sub SeedKioskStateIfMissing(db As KioskDbContext)
-        Dim kioskId As String = (If(AppSettings.KioskID, "")).Trim()
-        If kioskId.Length = 0 Then Return
-
-        Dim row = db.KioskState.SingleOrDefault(Function(x) x.KioskId = kioskId)
-        If row IsNot Nothing Then Return
-
-        db.KioskState.Add(New KioskState With {
-            .KioskId = kioskId,
-            .LocationId = AppSettings.LocationId,
-            .IsCommissioned = False,
-            .LastUpdatedUtc = DateTime.UtcNow
-       })
-        db.SaveChanges()
-    End Sub
-
 End Module
 
 

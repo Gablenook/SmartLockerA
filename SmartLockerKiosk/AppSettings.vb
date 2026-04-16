@@ -15,19 +15,48 @@
         Public Shared Property BaseApiUrl As String = "https://smartlockerapp.azurewebsites.net"
 
         ' =========================
+        ' Workflow selection
+        ' =========================
+
+        Public Shared ReadOnly Property HomePickupWorkflowKey As String
+            Get
+                Return GetSetting("SmartLockerKiosk", "Workflow", "HomePickupWorkflowKey", "package-retrieve")
+            End Get
+        End Property
+
+        Public Shared ReadOnly Property HomeDeliveryWorkflowKey As String
+            Get
+                Return GetSetting("SmartLockerKiosk", "Workflow", "HomeDeliveryWorkflowKey", "package-deposit")
+            End Get
+        End Property
+
+        'Workflow 2 test variables
+        Public Shared Property TestAssetTag As String = "SCN123456"
+        Public Shared Property TestAssetDeviceType As String = "SCANNER"
+        Public Shared Property TestDefectType As String = "Battery Issue"
+
+        ' =========================
+        ' Scan filter selection
+        ' =========================
+
+        Public Shared ReadOnly Property DefaultAssetValidationProfileKey As String
+            Get
+                Return GetSetting("SmartLockerKiosk", "Workflow", "DefaultAssetValidationProfileKey", "asset_default")
+            End Get
+        End Property
+
+        ' =========================
         ' Backend communication
         ' =========================
 
         Public Shared Property ApiTimeoutSeconds As Integer = 10
         Public Shared Property HealthPath As String = "/health"
 
-        ' Optional: post-action reporting behavior
         Public Shared Property EnableTransactionReporting As Boolean = True
         Public Shared Property EnableQueuedTransactionRetry As Boolean = True
         Public Shared Property TransactionRetryIntervalSeconds As Integer = 30
         Public Shared Property MaxTransactionRetryCount As Integer = 20
 
-        ' Adapter identity for backend reporting
         Public Shared Property AdapterName As String = "HldRelayAdapter"
 
         ' =========================
@@ -35,7 +64,7 @@
         ' =========================
 
         Public Shared Property PasscodeLength As Integer = 6
-        Public Shared Property SelectedWorkFlow As String = "Pickup and Delivery"
+
         Public Shared Property SelectedStyle As String = "TSA-Uniforms"
 
         ' =========================
@@ -49,7 +78,6 @@
         Public Shared Property TestWorkOrder As String = "1000055"
         Public Shared Property TestPickupLockerNumber As String = "3"
 
-        ' When True, kiosk may use bypass services instead of real backend services
         Public Shared Property UseBackendBypass As Boolean = True
 
         ' =========================

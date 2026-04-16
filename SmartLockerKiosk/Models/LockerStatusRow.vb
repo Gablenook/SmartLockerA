@@ -77,5 +77,64 @@ Public Class LockerStatusRow
     Private Sub OnPropertyChanged(<CallerMemberName> Optional name As String = Nothing)
         RaiseEvent PropertyChanged(Me, New PropertyChangedEventArgs(name))
     End Sub
+
+    'Asset related properties
+    Private _currentDeviceType As String
+    Public Property CurrentDeviceType As String
+        Get
+            Return _currentDeviceType
+        End Get
+        Set(value As String)
+            If _currentDeviceType <> value Then
+                _currentDeviceType = value
+                IsDirty = True
+                OnPropertyChanged()
+            End If
+        End Set
+    End Property
+
+    Private _currentAssetTag As String
+    Public Property CurrentAssetTag As String
+        Get
+            Return _currentAssetTag
+        End Get
+        Set(value As String)
+            If _currentAssetTag <> value Then
+                _currentAssetTag = value
+                IsDirty = True
+                OnPropertyChanged()
+            End If
+        End Set
+    End Property
+
+    Private _isDefectiveHold As Boolean
+    Public Property IsDefectiveHold As Boolean
+        Get
+            Return _isDefectiveHold
+        End Get
+        Set(value As Boolean)
+            If _isDefectiveHold <> value Then
+                _isDefectiveHold = value
+                IsDirty = True
+                OnPropertyChanged()
+            End If
+        End Set
+    End Property
+
+    Private _defectType As String
+    Public Property DefectType As String
+        Get
+            Return _defectType
+        End Get
+        Set(value As String)
+            If _defectType <> value Then
+                _defectType = value
+                IsDirty = True
+                OnPropertyChanged()
+            End If
+        End Set
+    End Property
+
+
 End Class
 

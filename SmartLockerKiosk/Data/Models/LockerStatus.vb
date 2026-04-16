@@ -18,10 +18,18 @@ End Enum
 
 Public Class LockerStatus
 
+    ' =========================
+    ' Keys / Relationships
+    ' =========================
+
     <Key, ForeignKey(NameOf(Locker))>
     Public Property LockerId As Integer   ' PK + FK to Locker.LockerId
 
     Public Overridable Property Locker As Locker
+
+    ' =========================
+    ' Core State
+    ' =========================
 
     Public Property LockState As LockState = LockState.Unknown
     Public Property OccupancyState As OccupancyState = OccupancyState.Unknown
@@ -29,19 +37,34 @@ Public Class LockerStatus
     ' Optional signal if you later add a sensor
     Public Property PackagePresent As Boolean?
 
-    ' Last time ANY status field was updated
+    ' Last time any status field was updated
     Public Property LastUpdatedUtc As DateTime = DateTime.UtcNow
 
-    ' ---------- Delivery-assignment safety ----------
-    ' Prevents double assignment if user taps twice / concurrent flows.
+    ' =========================
+    ' Reservation / Assignment Safety
+    ' =========================
+
+    ' Prevents double assignment if user taps twice / concurrent flows
     Public Property ReservedUntilUtc As DateTime?
     Public Property ReservedCorrelationId As String
     Public Property ReservedWorkOrderNumber As String
 
-    ' ---------- Traceability (helps support + reconciliation) ----------
+    ' =========================
+    ' Traceability / Reconciliation
+    ' =========================
+
     Public Property LastWorkOrderNumber As String
     Public Property LastActorId As String
     Public Property LastReason As String
+
+    ' =========================
+    ' Device / Inventory Tracking
+    ' =========================
+
+    Public Property CurrentDeviceType As String
+    Public Property CurrentAssetTag As String
+    Public Property IsDefectiveHold As Boolean = False
+    Public Property DefectType As String
 
 End Class
 

@@ -17,4 +17,5 @@
     Public Property WorkOrderNumber As String
     Public Property WorkOrders As List(Of WorkOrderAuthItem) = New List(Of WorkOrderAuthItem)()
     Public Property SessionToken As String
+    Public Property Roles As List(Of String)
 End Class

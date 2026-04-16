@@ -5,4 +5,8 @@
     AwaitAdminCredential
     AwaitWorkOrder
     AwaitLockerSize
+    AwaitAssetScan
+    AwaitCompartmentSelection
+    AwaitDefectDecision
+    AwaitDefectType
 End Enum

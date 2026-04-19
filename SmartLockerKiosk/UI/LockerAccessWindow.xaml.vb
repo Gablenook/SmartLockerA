@@ -636,11 +636,15 @@ Namespace SmartLockerKiosk
 
 #Region "Workflow state navigation"
         Private Sub ResetToAwaitWorkflowChoice()
+
             AuditTrace($"RESET TO HOME state={_state} epoch={_uiEpoch} time={DateTime.Now:HH:mm:ss.fff}",
-               reasonCode:="Trace:ResetToAwaitWorkflowChoice")
+       reasonCode:="Trace:ResetToAwaitWorkflowChoice")
             TraceToFile("RESET_TO_HOME")
 
             BumpUiEpoch()
+
+            ' 🔥 CRITICAL FIX
+            SetUiEnabled(True)
 
             _state = ScreenState.AwaitWorkflowChoice
             _activeWorkflow = Nothing
@@ -664,10 +668,12 @@ Namespace SmartLockerKiosk
 
             PickupButton.IsEnabled = True
             DeliverButton.IsEnabled = True
+
             KeypadControl.Reset()
 
             ShowPrompt("Select a workflow")
             FocusHidSink()
+
         End Sub
         Private Sub PromptForCredential()
             BumpUiEpoch()
@@ -695,8 +701,15 @@ Namespace SmartLockerKiosk
         Private Sub SetUiEnabled(enabled As Boolean)
             KeypadControl.IsEnabled = enabled
 
-            ' During validation, disable menu choices. After validation, ShowTransactionMenu sets them.
-            If Not enabled Then
+            If enabled Then
+                If _state = ScreenState.AwaitWorkflowChoice Then
+                    PickupButton.IsEnabled = True
+                    DeliverButton.IsEnabled = True
+                Else
+                    PickupButton.IsEnabled = False
+                    DeliverButton.IsEnabled = False
+                End If
+            Else
                 PickupButton.IsEnabled = False
                 DeliverButton.IsEnabled = False
             End If

@@ -34,10 +34,6 @@ Namespace SmartLockerKiosk
                 SelectComboBoxItemByContent(PasscodeLengthComboBox, AppSettings.PasscodeLength.ToString())
             End If
 
-            ' Workflow
-            If Not String.IsNullOrWhiteSpace(AppSettings.SelectedWorkFlow) Then
-                SelectComboBoxItemByContent(WorkflowComboBox, AppSettings.SelectedWorkFlow)
-            End If
 
             ' Style
             If Not String.IsNullOrWhiteSpace(AppSettings.SelectedStyle) Then
@@ -128,11 +124,10 @@ Namespace SmartLockerKiosk
                 End If
 
                 Dim selectedWorkflowItem = TryCast(WorkflowComboBox.SelectedItem, ComboBoxItem)
-                If selectedWorkflowItem IsNot Nothing Then
-                    AppSettings.SelectedWorkFlow = selectedWorkflowItem.Content?.ToString()
-                End If
+
 
                 Dim selectedStyleItem = TryCast(StyleComboBox.SelectedItem, ComboBoxItem)
+
                 If selectedStyleItem IsNot Nothing Then
                     AppSettings.SelectedStyle = selectedStyleItem.Content?.ToString()
                 End If

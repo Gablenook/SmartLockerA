@@ -12,7 +12,10 @@
         Public Shared Property KioskID As String = ""
         Public Shared Property LocationId As String = ""
         Public Shared Property DeviceApiKey As String = ""
-        Public Shared Property BaseApiUrl As String = "https://smartlockerapp.azurewebsites.net"
+        'Public Shared Property BaseApiUrl As String = "https://smartlockerapp.azurewebsites.net"
+        Public Shared Property BaseApiUrl As String = "http://localhost:5000"
+
+
 
         ' =========================
         ' Workflow selection
@@ -30,10 +33,7 @@
             End Get
         End Property
 
-        'Workflow 2 test variables
-        Public Shared Property TestAssetTag As String = "SCN123456"
-        Public Shared Property TestAssetDeviceType As String = "SCANNER"
-        Public Shared Property TestDefectType As String = "Battery Issue"
+
 
         ' =========================
         ' Scan filter selection
@@ -51,34 +51,37 @@
 
         Public Shared Property ApiTimeoutSeconds As Integer = 10
         Public Shared Property HealthPath As String = "/health"
-
         Public Shared Property EnableTransactionReporting As Boolean = True
         Public Shared Property EnableQueuedTransactionRetry As Boolean = True
         Public Shared Property TransactionRetryIntervalSeconds As Integer = 30
         Public Shared Property MaxTransactionRetryCount As Integer = 20
-
         Public Shared Property AdapterName As String = "HldRelayAdapter"
 
         ' =========================
         ' UI configuration
         ' =========================
-
         Public Shared Property PasscodeLength As Integer = 6
-
         Public Shared Property SelectedStyle As String = "TSA-Uniforms"
+        Public Shared Property SiteCode As String = "ATL"
+        Public Shared Property ClientCode As String = "TSA"
+        Public Shared Property LockerBankId As String = ""
 
         ' =========================
         ' Test / dev mode
         ' =========================
+        Public Shared Property UseBackendBypass As Boolean = False
+        Public Shared Property TestModeEnabled As Boolean = False
 
-        Public Shared Property TestModeEnabled As Boolean = True
+        Public Shared Property TestCommissioningCode As String = "123456"
         Public Shared Property TestAdminCredential As String = "123698740"
         Public Shared Property TestCourierCredential As String = "123698740"
         Public Shared Property TestPickupCredential As String = "123698740"
-        Public Shared Property TestWorkOrder As String = "1000055"
+        Public Shared Property TestWorkOrder As String = "100005"
         Public Shared Property TestPickupLockerNumber As String = "3"
+        Public Shared Property TestAssetTag As String = "SCN123456"
+        Public Shared Property TestAssetDeviceType As String = "SCANNER"
+        Public Shared Property TestDefectType As String = "Battery Issue"
 
-        Public Shared Property UseBackendBypass As Boolean = True
 
         ' =========================
         ' Guards

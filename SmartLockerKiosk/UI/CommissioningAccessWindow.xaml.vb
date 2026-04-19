@@ -48,7 +48,7 @@ Namespace SmartLockerKiosk
         Private ReadOnly _commissioningService As ICommissioningService
         Private ReadOnly _backendHealthService As IBackendHealthService
 
-        Private Const LocalBypassCommissioningCode As String = "12345"
+        Private ReadOnly LocalBypassCommissioningCode As String = AppSettings.TestCommissioningCode
         Private Const EnableBackendCommissioning As Boolean = False
         Private Const AllowOfflineCommissioning As Boolean = False
 

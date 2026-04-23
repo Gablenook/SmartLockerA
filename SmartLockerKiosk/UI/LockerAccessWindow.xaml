@@ -7,67 +7,82 @@
         WindowStyle="None"
         ResizeMode="NoResize"
         WindowState="Maximized"
-        Background="#00205B"
+        Background="{DynamicResource BrandBackgroundBrush}"
         WindowStartupLocation="CenterScreen"
         Loaded="LockerAccessWindow_Loaded">
-
+  
+    
     <Window.Resources>
-        <Storyboard x:Key="FadeInPrompt">
-            <DoubleAnimation Storyboard.TargetName="UserPromptText"
-                             Storyboard.TargetProperty="Opacity"
-                             From="0" To="1"
-                             Duration="0:0:3"/>
-        </Storyboard>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="/Themes/RyderTheme.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
 
-        <DropShadowEffect x:Key="PromptShadowEffect"
+            <Storyboard x:Key="FadeInPrompt">
+                <DoubleAnimation Storyboard.TargetName="UserPromptText"
+                             Storyboard.TargetProperty="Opacity"
+                             From="0"
+                             To="1"
+                             Duration="0:0:3"/>
+            </Storyboard>
+
+            <DropShadowEffect x:Key="PromptShadowEffect"
                           Color="#F0F4F8"
                           BlurRadius="100"
-                          ShadowDepth=".25"
-                          Opacity=".5"/>
+                          ShadowDepth="0.25"
+                          Opacity="0.5"/>
 
-        <Style x:Key="PrimaryActionButtonStyle" TargetType="Button">
-            <Setter Property="Background" Value="#3399FF"/>
-            <Setter Property="Foreground" Value="White"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="FontFamily" Value="Segoe UI"/>
-            <Setter Property="FontWeight" Value="Bold"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border Background="{TemplateBinding Background}"
-                                CornerRadius="18"
-                                SnapsToDevicePixels="True">
-                            <ContentPresenter HorizontalAlignment="Center"
-                                              VerticalAlignment="Center"
-                                              Margin="{TemplateBinding Padding}"/>
-                        </Border>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
+            <Style x:Key="PrimaryActionButtonStyle" TargetType="Button">
+                <Setter Property="Background" Value="{DynamicResource BrandPrimaryButtonBrush}"/>
+                <Setter Property="Foreground" Value="{DynamicResource BrandPrimaryButtonTextBrush}"/>
+                <Setter Property="BorderThickness" Value="0"/>
+                <Setter Property="FontFamily" Value="Segoe UI"/>
+                <Setter Property="FontWeight" Value="Bold"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="{TemplateBinding Background}"
+                        CornerRadius="18"
+                        SnapsToDevicePixels="True">
+                                <ContentPresenter HorizontalAlignment="Center"
+                                      VerticalAlignment="Center"
+                                      Margin="{TemplateBinding Padding}"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+            
+            <Style x:Key="WorkflowButtonStyle"
+               TargetType="Button"
+               BasedOn="{StaticResource PrimaryActionButtonStyle}">
+                <Setter Property="Width" Value="300"/>
+                <Setter Property="Height" Value="100"/>
+                <Setter Property="FontSize" Value="48"/>
+                <Setter Property="Margin" Value="10,0"/>
+            </Style>
 
-        <Style x:Key="WorkflowButtonStyle" TargetType="Button" BasedOn="{StaticResource PrimaryActionButtonStyle}">
-            <Setter Property="Width" Value="300"/>
-            <Setter Property="Height" Value="100"/>
-            <Setter Property="FontSize" Value="48"/>
-            <Setter Property="Margin" Value="10,0"/>
-        </Style>
+            <Style x:Key="DialogButtonStyle"
+               TargetType="Button"
+               BasedOn="{StaticResource PrimaryActionButtonStyle}">
+                <Setter Property="Width" Value="180"/>
+                <Setter Property="Height" Value="90"/>
+                <Setter Property="FontSize" Value="34"/>
+                <Setter Property="Margin" Value="12,0"/>
+            </Style>
 
-        <Style x:Key="DialogButtonStyle" TargetType="Button" BasedOn="{StaticResource PrimaryActionButtonStyle}">
-            <Setter Property="Width" Value="180"/>
-            <Setter Property="Height" Value="90"/>
-            <Setter Property="FontSize" Value="34"/>
-            <Setter Property="Margin" Value="12,0"/>
-        </Style>
-
-        <Style x:Key="SizeTileButtonStyle" TargetType="Button" BasedOn="{StaticResource PrimaryActionButtonStyle}">
-            <Setter Property="Width" Value="200"/>
-            <Setter Property="Height" Value="120"/>
-            <Setter Property="Margin" Value="8"/>
-            <Setter Property="Padding" Value="12"/>
-        </Style>
+            <Style x:Key="SizeTileButtonStyle"
+               TargetType="Button"
+               BasedOn="{StaticResource PrimaryActionButtonStyle}">
+                <Setter Property="Width" Value="200"/>
+                <Setter Property="Height" Value="120"/>
+                <Setter Property="Margin" Value="8"/>
+                <Setter Property="Padding" Value="12"/>
+            </Style>
+        </ResourceDictionary>
     </Window.Resources>
+    
 
     <Grid x:Name="RootGrid">
 
@@ -82,7 +97,7 @@
                  HorizontalAlignment="Left" />
 
         <Viewbox Stretch="Uniform">
-            <Grid Width="800" Height="1200" Background="#00205B">
+            <Grid Width="800" Height="1200" Background="{DynamicResource BrandBackgroundBrush}">
 
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
@@ -101,8 +116,8 @@
                     <Viewbox Width="225" Height="225"
                              HorizontalAlignment="Left"
                              VerticalAlignment="Top">
-                        <Image Source="/Images/TSALogo.png"
-                               RenderOptions.BitmapScalingMode="HighQuality"/>
+                        <Image Source="{DynamicResource BrandLogoImage}"
+       RenderOptions.BitmapScalingMode="HighQuality"/>
                     </Viewbox>
 
                     <Button Grid.Column="2"
@@ -156,7 +171,7 @@
                             MinHeight="100"
                             MaxHeight="220"
                             Margin="0,10,0,10"
-                            Background="#60FFFFFF"
+                            Background="{DynamicResource BrandPromptBrush}"
                             CornerRadius="40"
                             Padding="20"
                             Effect="{DynamicResource PromptShadowEffect}">
@@ -165,7 +180,7 @@
                                    Opacity=".8"
                                    FontSize="36"
                                    FontWeight="Bold"
-                                   Foreground="White"
+                                   Foreground="{DynamicResource BrandPromptTextBrush}"
                                    TextAlignment="Center"
                                    TextWrapping="Wrap"
                                    TextTrimming="None"
@@ -246,7 +261,7 @@
                                                         <Border Grid.Row="2"
                                                                 Width="{Binding ThumbWidth}"
                                                                 Height="{Binding ThumbHeight}"
-                                                                BorderBrush="White"
+                                                                BorderBrush="{DynamicResource BrandTileOutlineBrush}"
                                                                 BorderThickness="2"
                                                                 CornerRadius="8"
                                                                 Opacity="0.85"
@@ -298,7 +313,7 @@
                                     <Button x:Name="DeliverAnotherNoButton"
                                             Style="{StaticResource DialogButtonStyle}"
                                             Content="NO"
-                                            Background="#666666"
+                                            Background="{DynamicResource BrandSecondaryButtonBrush}"
                                             Click="DeliverAnotherNoButton_Click"/>
                                 </StackPanel>
                             </StackPanel>

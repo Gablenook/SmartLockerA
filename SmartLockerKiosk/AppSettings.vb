@@ -21,18 +21,76 @@
         ' Workflow selection
         ' =========================
 
+        Public Shared Property WorkflowFamily As String
+            Get
+                Return GetSetting(
+            "SmartLockerKiosk",
+            "Workflow",
+            "WorkflowFamily",
+            "package")
+            End Get
+
+            Set(value As String)
+
+                Dim wf = If(value, "").Trim().ToLowerInvariant()
+
+                Select Case wf
+                    Case "package", "asset"
+                        SaveSetting(
+                    "SmartLockerKiosk",
+                    "Workflow",
+                    "WorkflowFamily",
+                    wf)
+
+                    Case Else
+                        Throw New ArgumentException(
+                    "WorkflowFamily must be 'package' or 'asset'.")
+                End Select
+
+            End Set
+        End Property
+
         Public Shared ReadOnly Property HomePickupWorkflowKey As String
             Get
-                Return GetSetting("SmartLockerKiosk", "Workflow", "HomePickupWorkflowKey", "package-retrieve")
+
+                Select Case WorkflowFamily.Trim().ToLowerInvariant()
+
+                    Case "asset"
+                        Return "asset-checkout"
+
+                    Case "package"
+                        Return "package-retrieve"
+
+                    Case Else
+                        Throw New InvalidOperationException(
+                    $"Unknown WorkflowFamily '{WorkflowFamily}'"
+                )
+
+                End Select
+
             End Get
         End Property
 
         Public Shared ReadOnly Property HomeDeliveryWorkflowKey As String
             Get
-                Return GetSetting("SmartLockerKiosk", "Workflow", "HomeDeliveryWorkflowKey", "package-deposit")
+
+                Select Case WorkflowFamily.Trim().ToLowerInvariant()
+
+                    Case "asset"
+                        Return "asset-deposit"
+
+                    Case "package"
+                        Return "package-deposit"
+
+                    Case Else
+                        Throw New InvalidOperationException(
+                    $"Unknown WorkflowFamily '{WorkflowFamily}'"
+                )
+
+                End Select
+
             End Get
         End Property
-
 
 
         ' =========================
@@ -69,8 +127,8 @@
         ' =========================
         ' Test / dev mode
         ' =========================
-        Public Shared Property UseBackendBypass As Boolean = False
-        Public Shared Property TestModeEnabled As Boolean = False
+        Public Shared Property UseBackendBypass As Boolean = True
+        Public Shared Property TestModeEnabled As Boolean = True
 
         Public Shared Property TestCommissioningCode As String = "123456"
         Public Shared Property TestAdminCredential As String = "123698740"
@@ -78,7 +136,7 @@
         Public Shared Property TestPickupCredential As String = "123698740"
         Public Shared Property TestWorkOrder As String = "100005"
         Public Shared Property TestPickupLockerNumber As String = "3"
-        Public Shared Property TestAssetTag As String = "SCN123456"
+        Public Shared Property TestAssetTag As String = "S/N123456"
         Public Shared Property TestAssetDeviceType As String = "SCANNER"
         Public Shared Property TestDefectType As String = "Battery Issue"
 

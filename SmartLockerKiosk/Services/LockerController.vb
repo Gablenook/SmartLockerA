@@ -79,65 +79,113 @@ Public Class LockerControllerService
 
         ConnectBranch(b, portName)
     End Sub
-    Public Sub ConnectBranch(branch As String, portName As String)
+    Public Function ConnectBranch(branch As String, portName As String) As Boolean
         Dim b = NormalizeBranch(branch)
-        If String.IsNullOrWhiteSpace(b) Then Throw New ArgumentException("branch is required.", NameOf(branch))
-        If String.IsNullOrWhiteSpace(portName) Then Throw New ArgumentException("portName is required.", NameOf(portName))
+
+        If String.IsNullOrWhiteSpace(b) Then
+            RaiseEvent Trace("", "ConnectBranch failed: branch is required.")
+            Return False
+        End If
+
+        If String.IsNullOrWhiteSpace(portName) Then
+            RaiseEvent Trace(b, "ConnectBranch failed: portName is required.")
+            Return False
+        End If
 
         Dim pn = portName.Trim()
 
         Dim ctl As HldRelayController.HldRelayController = Nothing
         Dim s As BranchSession = Nothing
 
-        ' Create + register under lock (but do not Start under lock)
+        ' Create + register under lock, but do not Start under lock.
         SyncLock _initGate
             If _sessions.ContainsKey(b) Then
-                Throw New InvalidOperationException($"Branch {b} is already connected. Restart app to change ports.")
+                RaiseEvent Trace(b, $"Branch {b} is already connected.")
+                Return True
             End If
 
             ctl = New HldRelayController.HldRelayController(autoReconnect:=True)
             s = New BranchSession(b, pn, ctl)
 
-            ' Attach handlers (closures capture branch + session)
             AddHandler ctl.StatusUpdated,
-                Sub()
-                    s.HasFirstFrame = True
-                    RaiseEvent BranchStatusUpdated(b)
-                End Sub
+            Sub()
+                s.HasFirstFrame = True
+                RaiseEvent BranchStatusUpdated(b)
+            End Sub
 
             AddHandler ctl.Trace,
-                Sub(msg As String)
-                    RaiseEvent Trace(b, msg)
-                End Sub
+            Sub(msg As String)
+                RaiseEvent Trace(b, msg)
+            End Sub
 
             AddHandler ctl.Disconnected,
-                Sub(reason As String)
-                    RaiseEvent Disconnected(b, reason)
-                End Sub
+            Sub(reason As String)
+                RaiseEvent Disconnected(b, reason)
+            End Sub
 
             AddHandler ctl.Reconnected,
-                Sub(p As String)
-                    RaiseEvent Reconnected(b, p)
-                End Sub
+            Sub(p As String)
+                RaiseEvent Reconnected(b, p)
+            End Sub
 
             _sessions(b) = s
         End SyncLock
 
-        ' Start outside lock (may block briefly)
+        ' Start outside lock because it may block briefly.
         Try
             ctl.Start(pn)
-        Catch
-            ' If Start fails, remove session + dispose controller.
+            RaiseEvent Trace(b, $"Connected to controller on {pn}.")
+            Return True
+
+        Catch ex As UnauthorizedAccessException
             SyncLock _initGate
                 _sessions.Remove(b)
             End SyncLock
+
             Try : ctl.Dispose() : Catch : End Try
-            Throw
+
+            RaiseEvent Trace(b, $"Port {pn} is unavailable or already in use. {ex.Message}")
+            Return False
+
+        Catch ex As IO.IOException
+            SyncLock _initGate
+                _sessions.Remove(b)
+            End SyncLock
+
+            Try : ctl.Dispose() : Catch : End Try
+
+            RaiseEvent Trace(b, $"Could not open {pn}. Serial I/O error: {ex.Message}")
+            Return False
+
+        Catch ex As Exception
+            SyncLock _initGate
+                _sessions.Remove(b)
+            End SyncLock
+
+            Try : ctl.Dispose() : Catch : End Try
+
+            RaiseEvent Trace(b, $"Could not connect to {pn}: {ex.Message}")
+            Return False
         End Try
-    End Sub
+    End Function
     Public Function IsBranchReady(branch As String) As Boolean
-        Dim s = GetSessionOrThrow(branch)
-        Return s.HasFirstFrame AndAlso s.Controller.LastFrameUtc <> DateTime.MinValue
+        If String.IsNullOrWhiteSpace(branch) Then Return False
+
+        Dim b = NormalizeBranch(branch)
+        If String.IsNullOrWhiteSpace(b) Then Return False
+
+        SyncLock _initGate
+            Dim s As BranchSession = Nothing
+
+            If Not _sessions.TryGetValue(b, s) OrElse s Is Nothing Then
+                Return False
+            End If
+
+            If s.Controller Is Nothing Then Return False
+
+            Return s.HasFirstFrame AndAlso
+               s.Controller.LastFrameUtc <> DateTime.MinValue
+        End SyncLock
     End Function
     Public Function IsBranchEnabled(branch As String) As Boolean
         If String.IsNullOrWhiteSpace(branch) Then Return False

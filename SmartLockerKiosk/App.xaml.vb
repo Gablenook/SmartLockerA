@@ -14,39 +14,23 @@ Namespace SmartLockerKiosk
         Protected Overrides Sub OnStartup(e As StartupEventArgs)
 
             If Not TryAcquireSingleInstanceMutex() Then
-                Try
-                    Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
-                .EventType = Audit.AuditEventType.SystemStartup,
-                .ActorType = Audit.ActorType.System,
-                .ActorId = SystemActorId,
-                .AffectedComponent = "App",
-                .Outcome = Audit.AuditOutcome.Denied,
-                .CorrelationId = Guid.NewGuid().ToString("N"),
-                .ReasonCode = "SingleInstanceAlreadyRunning"
-            })
-                Catch
-                End Try
-
                 MessageBox.Show("SmartLockerKiosk is already running.")
                 Shutdown()
                 Return
             End If
 
+            ' ---------------------------
+            ' Demo workflow selection
+            ' ---------------------------
+            AppSettings.WorkflowFamily = "package"
+            'AppSettings.WorkflowFamily = "asset"
+
             MyBase.OnStartup(e)
 
             Audit.AuditServices.Initialize()
 
-            Dim correlationId As String = Guid.NewGuid().ToString("N")
-
-            SafeAudit(New Audit.AuditEvent With {
-        .EventType = Audit.AuditEventType.SystemStartup,
-        .ActorType = Audit.ActorType.System,
-        .ActorId = SystemActorId,
-        .AffectedComponent = "App",
-        .Outcome = Audit.AuditOutcome.Success,
-        .CorrelationId = correlationId,
-        .ReasonCode = "AppStarting"
-    })
+            Dim correlationId As String =
+        Guid.NewGuid().ToString("N")
 
             ApplyRuntimeConfig(correlationId)
             InitializeLocalDatabaseOrFail(correlationId)
@@ -56,16 +40,6 @@ Namespace SmartLockerKiosk
             Dim w As Window = CreateStartupWindow(decision)
             Me.MainWindow = w
             w.Show()
-
-            SafeAudit(New Audit.AuditEvent With {
-        .EventType = Audit.AuditEventType.SystemStartup,
-        .ActorType = Audit.ActorType.System,
-        .ActorId = SystemActorId,
-        .AffectedComponent = "App",
-        .Outcome = Audit.AuditOutcome.Success,
-        .CorrelationId = correlationId,
-        .ReasonCode = $"StartupWindowShown:{w.GetType().Name};Mode={decision.Mode};DbPath={decision.DbPath}"
-    })
 
         End Sub
 
@@ -201,7 +175,9 @@ Namespace SmartLockerKiosk
             AppSettings.DeviceApiKey = "dev-kiosk-key-123"
             AppSettings.KioskID = "KIOSK-DEV-001"
             AppSettings.LocationId = "LOC-DEV-001"
-            'AppSettings.TestModeEnabled = False
+            AppSettings.WorkflowFamily = "asset"
+            AppSettings.UseBackendBypass = "True"
+            AppSettings.TestModeEnabled = True
 
             SafeAudit(New Audit.AuditEvent With {
         .EventType = Audit.AuditEventType.PolicyConfigurationChange,

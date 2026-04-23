@@ -1,0 +1,19 @@
+﻿<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Color x:Key="BrandBackgroundColor">#00205B</Color>
+    <SolidColorBrush x:Key="BrandBackgroundBrush" Color="{StaticResource BrandBackgroundColor}"/>
+    <SolidColorBrush x:Key="BrandPrimaryButtonBrush" Color="#3399FF"/>
+    <SolidColorBrush x:Key="BrandPrimaryButtonTextBrush" Color="White"/>
+    <SolidColorBrush x:Key="BrandSecondaryButtonBrush" Color="#666666"/>
+    <SolidColorBrush x:Key="BrandTileOutlineBrush" Color="White"/>
+    <SolidColorBrush x:Key="BrandPromptBrush" Color="#60FFFFFF"/>
+    <SolidColorBrush x:Key="BrandPromptTextBrush" Color="White"/>
+    <SolidColorBrush x:Key="BrandKeypadButtonBrush" Color="#1565C0"/>
+    <SolidColorBrush x:Key="BrandKeypadButtonTextBrush" Color="White"/>
+    <SolidColorBrush x:Key="BrandKeypadEnterBrush" Color="#1565C0"/>
+    <SolidColorBrush x:Key="BrandKeypadSpecialBrush" Color="#1565C0"/>
+    <SolidColorBrush x:Key="BrandKeypadPanelBrush" Color="White"/>
+    <SolidColorBrush x:Key="BrandKeypadEnterTextBrush" Color="White"/>
+    <BitmapImage x:Key="BrandLogoImage" UriSource="/Images/TSALogo.png"/>
+</ResourceDictionary>

@@ -71,6 +71,8 @@ Namespace SmartLockerKiosk
             InitializeComponent()
             fadeIn = CType(FindResource("FadeInPrompt"), Storyboard)
 
+            ApplyTheme("RYDER")
+
             _lockerController = lockerController
 
             If AppSettings.UseBackendBypass Then
@@ -85,6 +87,33 @@ Namespace SmartLockerKiosk
             IndexWorkflowConfiguration(_workflowConfig)
 
             ConfigureBarcodeValidation()
+        End Sub
+        Private Sub ApplyTheme(themeName As String)
+
+            Dim merged = Application.Current.Resources.MergedDictionaries
+
+            For i As Integer = merged.Count - 1 To 0 Step -1
+                Dim src = merged(i).Source?.ToString()
+
+                If src IsNot Nothing AndAlso
+           (src.Contains("TsaTheme.xaml") OrElse
+            src.Contains("RyderTheme.xaml")) Then
+                    merged.RemoveAt(i)
+                End If
+            Next
+
+            Dim themeUri As Uri
+
+            Select Case If(themeName, "").Trim().ToUpperInvariant()
+                Case "RYDER"
+                    themeUri = New Uri("/SmartLockerKiosk;component/Themes/RyderTheme.xaml", UriKind.Relative)
+
+                Case Else
+                    themeUri = New Uri("/SmartLockerKiosk;component/Themes/TsaTheme.xaml", UriKind.Relative)
+            End Select
+
+            merged.Add(New ResourceDictionary With {.Source = themeUri})
+
         End Sub
         Private Sub ConfigureBarcodeValidation()
             _barcodeScanService.Validator =
@@ -312,10 +341,12 @@ Namespace SmartLockerKiosk
     }
 
             Dim config As New KioskWorkflowConfiguration With {
-        .DefaultWorkflowKey = pickupWorkflowKey,
-        .EnabledWorkflows = workflows,
-        .ScanValidationProfiles = profiles
-    }
+    .DefaultWorkflowKey = pickupWorkflowKey,
+    .HomePickupWorkflowKey = pickupWorkflowKey,
+    .HomeDeliveryWorkflowKey = deliveryWorkflowKey,
+    .EnabledWorkflows = workflows,
+    .ScanValidationProfiles = profiles
+}
 
             Dim defaultWorkflowExists As Boolean =
         config.EnabledWorkflows.Any(

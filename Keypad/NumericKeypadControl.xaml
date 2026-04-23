@@ -6,28 +6,100 @@
              Background="Transparent">
 
     <UserControl.Resources>
-        <ResourceDictionary>
-            <ResourceDictionary.MergedDictionaries>
-                <ResourceDictionary Source="Themes/KeypadTheme.xaml"/>
-            </ResourceDictionary.MergedDictionaries>
-        </ResourceDictionary>
+
+        <!-- Local fallback resources so the control still renders
+             even if a consuming window/theme forgets to provide them -->
+        <SolidColorBrush x:Key="BrandKeypadPanelBrush" Color="White"/>
+        <SolidColorBrush x:Key="BrandKeypadButtonBrush" Color="#C9C9C9"/>
+        <SolidColorBrush x:Key="BrandKeypadButtonTextBrush" Color="#111111"/>
+        <SolidColorBrush x:Key="BrandKeypadSpecialBrush" Color="#BFC3C7"/>
+        <SolidColorBrush x:Key="BrandKeypadEnterBrush" Color="#CE2028"/>
+        <SolidColorBrush x:Key="BrandKeypadEnterTextBrush" Color="White"/>
+
+        <DropShadowEffect x:Key="FallbackShadowEffect"
+                          Color="#80000000"
+                          BlurRadius="10"
+                          ShadowDepth="2"
+                          Opacity="0.35"/>
+
+        <Style x:Key="KeypadBaseButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="{DynamicResource BrandKeypadButtonBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource BrandKeypadButtonTextBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BrandKeypadButtonBrush}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="FontFamily" Value="Segoe UI"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="FontSize" Value="34"/>
+            <Setter Property="Margin" Value="5"/>
+            <Setter Property="Padding" Value="8"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Root"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="12"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              Margin="{TemplateBinding Padding}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Root" Property="Opacity" Value="0.85"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Root" Property="Opacity" Value="0.55"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="KeypadDigitButtonStyle"
+               TargetType="Button"
+               BasedOn="{StaticResource KeypadBaseButtonStyle}">
+            <Setter Property="Background" Value="{DynamicResource BrandKeypadButtonBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BrandKeypadButtonBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource BrandKeypadButtonTextBrush}"/>
+        </Style>
+
+        <Style x:Key="KeypadSpecialButtonStyle"
+               TargetType="Button"
+               BasedOn="{StaticResource KeypadBaseButtonStyle}">
+            <Setter Property="Background" Value="{DynamicResource BrandKeypadSpecialBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BrandKeypadSpecialBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource BrandKeypadButtonTextBrush}"/>
+        </Style>
+
+        <Style x:Key="KeypadEnterButtonStyle"
+               TargetType="Button"
+               BasedOn="{StaticResource KeypadBaseButtonStyle}">
+            <Setter Property="Background" Value="{DynamicResource BrandKeypadEnterBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BrandKeypadEnterBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource BrandKeypadEnterTextBrush}"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+        </Style>
+
     </UserControl.Resources>
 
-    <Border Background="{StaticResource KeypadBackground}"
-            Padding="8"
+    <Border Padding="8"
             CornerRadius="5"
             HorizontalAlignment="Center"
             VerticalAlignment="Center"
-            Effect="{StaticResource ShadowEffect}"
-
-            
-        Width="280">
+            Width="280"
+            Background="{DynamicResource BrandKeypadPanelBrush}"
+            Effect="{DynamicResource ShadowEffect}">
 
         <Grid Margin="3"
               HorizontalAlignment="Stretch"
               VerticalAlignment="Stretch">
 
-            <!-- 5 equal rows -->
             <Grid.RowDefinitions>
                 <RowDefinition Height="*"/>
                 <RowDefinition Height="*"/>
@@ -36,39 +108,33 @@
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
 
-            <!-- 3 equal columns -->
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
-            <!-- Row 0 -->
-            <Button Grid.Row="0" Grid.Column="0" Content="1" Click="Digit_Click"/>
-            <Button Grid.Row="0" Grid.Column="1" Content="2" Click="Digit_Click"/>
-            <Button Grid.Row="0" Grid.Column="2" Content="3" Click="Digit_Click"/>
+            <Button Grid.Row="0" Grid.Column="0" Content="1" Style="{StaticResource KeypadDigitButtonStyle}" Click="Digit_Click"/>
+            <Button Grid.Row="0" Grid.Column="1" Content="2" Style="{StaticResource KeypadDigitButtonStyle}" Click="Digit_Click"/>
+            <Button Grid.Row="0" Grid.Column="2" Content="3" Style="{StaticResource KeypadDigitButtonStyle}" Click="Digit_Click"/>
 
-            <!-- Row 1 -->
-            <Button Grid.Row="1" Grid.Column="0" Content="4" Click="Digit_Click"/>
-            <Button Grid.Row="1" Grid.Column="1" Content="5" Click="Digit_Click"/>
-            <Button Grid.Row="1" Grid.Column="2" Content="6" Click="Digit_Click"/>
+            <Button Grid.Row="1" Grid.Column="0" Content="4" Style="{StaticResource KeypadDigitButtonStyle}" Click="Digit_Click"/>
+            <Button Grid.Row="1" Grid.Column="1" Content="5" Style="{StaticResource KeypadDigitButtonStyle}" Click="Digit_Click"/>
+            <Button Grid.Row="1" Grid.Column="2" Content="6" Style="{StaticResource KeypadDigitButtonStyle}" Click="Digit_Click"/>
 
-            <!-- Row 2 -->
-            <Button Grid.Row="2" Grid.Column="0" Content="7" Click="Digit_Click"/>
-            <Button Grid.Row="2" Grid.Column="1" Content="8" Click="Digit_Click"/>
-            <Button Grid.Row="2" Grid.Column="2" Content="9" Click="Digit_Click"/>
+            <Button Grid.Row="2" Grid.Column="0" Content="7" Style="{StaticResource KeypadDigitButtonStyle}" Click="Digit_Click"/>
+            <Button Grid.Row="2" Grid.Column="1" Content="8" Style="{StaticResource KeypadDigitButtonStyle}" Click="Digit_Click"/>
+            <Button Grid.Row="2" Grid.Column="2" Content="9" Style="{StaticResource KeypadDigitButtonStyle}" Click="Digit_Click"/>
 
-            <!-- Row 3 -->
-            <Button Grid.Row="3" Grid.Column="0" Content="CLR" Click="Clear_Click"/>
-            <Button Grid.Row="3" Grid.Column="1" Content="0" Click="Digit_Click"/>
-            <Button Grid.Row="3" Grid.Column="2" Content="←" Click="Backspace_Click"/>
+            <Button Grid.Row="3" Grid.Column="0" Content="CLR" Style="{StaticResource KeypadSpecialButtonStyle}" Click="Clear_Click"/>
+            <Button Grid.Row="3" Grid.Column="1" Content="0" Style="{StaticResource KeypadDigitButtonStyle}" Click="Digit_Click"/>
+            <Button Grid.Row="3" Grid.Column="2" Content="←" Style="{StaticResource KeypadSpecialButtonStyle}" Click="Backspace_Click"/>
 
-            <!-- Row 4 -->
             <Button Grid.Row="4"
                     Grid.Column="0"
                     Grid.ColumnSpan="3"
                     Content="ENTER"
-                    FontWeight="Bold"
+                    Style="{StaticResource KeypadEnterButtonStyle}"
                     Click="Submit_Click"/>
         </Grid>
     </Border>

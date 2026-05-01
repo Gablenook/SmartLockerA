@@ -17,6 +17,10 @@
 	</PropertyGroup>
 
 	<ItemGroup>
+	  <None Remove="Images\Ryder.png" />
+	</ItemGroup>
+
+	<ItemGroup>
 	  <ApplicationDefinition Include="App.xaml" />
 	</ItemGroup>
 
@@ -43,6 +47,9 @@
 	<!-- Embedded image resources -->
 	<ItemGroup>
 		<Resource Include="Images\BrandingLogo.png" />
+		<Resource Include="Images\Ryder.png">
+		  <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+		</Resource>
 		<Resource Include="Images\TSALogo.png" />
 	</ItemGroup>
 	<ItemGroup>

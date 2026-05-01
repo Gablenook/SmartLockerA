@@ -77,6 +77,23 @@ Public Class BypassOperationsBackendService
 
         Return result
     End Function
+
+    Public Function ValidateAssetAsync(
+    assetTag As String,
+    ct As CancellationToken
+) As Task(Of AssetValidateResponse) _
+    Implements IOperationsBackendService.ValidateAssetAsync
+
+        Return Task.FromResult(New AssetValidateResponse With {
+        .isValid = True,
+        .assetTag = assetTag,
+        .deviceType = "SCANNER",
+        .sizeCode = "ASSET",
+        .status = "Available",
+        .message = "OK"
+    })
+    End Function
+
     Public Async Function ReserveLockerAsync(
         workOrderNumber As String,
         requestedLockerNumber As String,
@@ -132,6 +149,7 @@ Public Class BypassOperationsBackendService
         Catch
         End Try
     End Sub
+
 
     Public Async Function AuthorizeLockerActionAsync(
     dto As LockerAuthorizeRequestDto,

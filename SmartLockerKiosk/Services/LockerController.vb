@@ -260,7 +260,29 @@ Public Class LockerControllerService
             Return UnlockRelay(locker.Branch, locker.RelayId)
         End Using
     End Function
+    Public Function GetBranchDiagnostic(branch As String) As String
+        If String.IsNullOrWhiteSpace(branch) Then Return "No branch specified."
 
+        Dim b = branch.Trim().ToUpperInvariant()
+
+        SyncLock _initGate
+            Dim s As BranchSession = Nothing
+
+            If Not _sessions.TryGetValue(b, s) OrElse s Is Nothing Then
+                Return $"Branch {b}: no session."
+            End If
+
+            If s.Controller Is Nothing Then
+                Return $"Branch {b}: session exists, controller is Nothing."
+            End If
+
+            Return $"Branch {b}: Port={s.PortName}, " &
+               $"IsOpen={s.Controller.IsOpen}, " &
+               $"HasFirstFrame={s.HasFirstFrame}, " &
+               $"LastFrameUtc={s.Controller.LastFrameUtc:O}, " &
+               $"IsCommsHealthy={s.Controller.IsCommsHealthy}"
+        End SyncLock
+    End Function
 
     ' ---------- Helpers ----------
     Private Shared Function NormalizeBranch(branch As String) As String

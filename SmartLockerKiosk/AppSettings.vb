@@ -12,9 +12,7 @@
         Public Shared Property KioskID As String = ""
         Public Shared Property LocationId As String = ""
         Public Shared Property DeviceApiKey As String = ""
-        'Public Shared Property BaseApiUrl As String = "https://smartlockerapp.azurewebsites.net"
-        Public Shared Property BaseApiUrl As String = "http://localhost:5000"
-
+        Public Shared Property BaseApiUrl As String = "https://smartlockerapp.azurewebsites.net"
 
 
         ' =========================
@@ -119,9 +117,9 @@
         ' UI configuration
         ' =========================
         Public Shared Property PasscodeLength As Integer = 6
-        Public Shared Property SelectedStyle As String = "TSA-Uniforms"
-        Public Shared Property SiteCode As String = "ATL"
-        Public Shared Property ClientCode As String = "TSA"
+        Public Shared Property SelectedStyle As String = ""
+        Public Shared Property SiteCode As String = ""
+        Public Shared Property ClientCode As String = ""
         Public Shared Property LockerBankId As String = ""
 
         ' =========================

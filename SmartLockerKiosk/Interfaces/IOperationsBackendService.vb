@@ -32,4 +32,10 @@ Public Interface IOperationsBackendService
         bearerToken As String,
         ct As CancellationToken
     ) As Task
+
+    Function ValidateAssetAsync(
+    assetTag As String,
+    ct As CancellationToken
+) As Task(Of AssetValidateResponse)
+
 End Interface

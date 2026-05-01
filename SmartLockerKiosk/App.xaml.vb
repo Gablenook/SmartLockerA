@@ -12,18 +12,11 @@ Namespace SmartLockerKiosk
         Private Const BootstrapCommissioningActorId As String = "BOOTSTRAP:COMMISSIONING"
 
         Protected Overrides Sub OnStartup(e As StartupEventArgs)
-
             If Not TryAcquireSingleInstanceMutex() Then
                 MessageBox.Show("SmartLockerKiosk is already running.")
                 Shutdown()
                 Return
             End If
-
-            ' ---------------------------
-            ' Demo workflow selection
-            ' ---------------------------
-            AppSettings.WorkflowFamily = "package"
-            'AppSettings.WorkflowFamily = "asset"
 
             MyBase.OnStartup(e)
 
@@ -171,13 +164,16 @@ Namespace SmartLockerKiosk
             ' =========================
             ' Configure runtime settings
             ' =========================
-            AppSettings.BaseApiUrl = "https://smartlockerapp.azurewebsites.net/api/"
+            AppSettings.BaseApiUrl = "https://smartlockerapp.azurewebsites.net"
             AppSettings.DeviceApiKey = "dev-kiosk-key-123"
-            AppSettings.KioskID = "KIOSK-DEV-001"
-            AppSettings.LocationId = "LOC-DEV-001"
+            AppSettings.SelectedStyle = "RYDER"
+            AppSettings.KioskID = "RYDER-KIOSK-01"
+            AppSettings.SiteCode = "RYDER-CONYERS-01"
+            AppSettings.LocationId = "RYDER-CONYERS-GA-01"
             AppSettings.WorkflowFamily = "asset"
-            AppSettings.UseBackendBypass = "True"
-            AppSettings.TestModeEnabled = True
+            AppSettings.ClientCode = "RYDER"
+            AppSettings.UseBackendBypass = False
+            AppSettings.TestModeEnabled = False
 
             SafeAudit(New Audit.AuditEvent With {
         .EventType = Audit.AuditEventType.PolicyConfigurationChange,

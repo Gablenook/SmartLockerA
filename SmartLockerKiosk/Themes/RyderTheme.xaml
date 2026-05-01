@@ -30,6 +30,7 @@
     <SolidColorBrush x:Key="BrandKeypadEnterTextBrush" Color="White"/>
 
     <!-- Logo -->
-    <BitmapImage x:Key="BrandLogoImage"  UriSource="/Images/Ryder.png"/>
+    <BitmapImage x:Key="BrandLogoImage"
+             UriSource="pack://application:,,,/SmartLockerKiosk;component/Images/Ryder.png"/>
 
 </ResourceDictionary>

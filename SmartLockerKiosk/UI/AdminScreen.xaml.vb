@@ -29,16 +29,19 @@ Namespace SmartLockerKiosk
             })
         End Sub
         Private Sub LoadSettingsIntoUi()
-            ' Passcode length
+
             If AppSettings.PasscodeLength > 0 Then
                 SelectComboBoxItemByContent(PasscodeLengthComboBox, AppSettings.PasscodeLength.ToString())
             End If
 
-
-            ' Style
             If Not String.IsNullOrWhiteSpace(AppSettings.SelectedStyle) Then
                 SelectComboBoxItemByContent(StyleComboBox, AppSettings.SelectedStyle)
             End If
+
+            If Not String.IsNullOrWhiteSpace(AppSettings.WorkflowFamily) Then
+                SelectComboBoxItemByContent(WorkflowComboBox, AppSettings.WorkflowFamily)
+            End If
+
         End Sub
         Private Sub SelectComboBoxItemByContent(cb As ComboBox, content As String)
             For Each obj In cb.Items
@@ -125,6 +128,9 @@ Namespace SmartLockerKiosk
 
                 Dim selectedWorkflowItem = TryCast(WorkflowComboBox.SelectedItem, ComboBoxItem)
 
+                If selectedWorkflowItem IsNot Nothing Then
+                    AppSettings.WorkflowFamily = selectedWorkflowItem.Content?.ToString()
+                End If
 
                 Dim selectedStyleItem = TryCast(StyleComboBox.SelectedItem, ComboBoxItem)
 

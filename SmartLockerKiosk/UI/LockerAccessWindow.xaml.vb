@@ -52,6 +52,8 @@ Namespace SmartLockerKiosk
         Private ReadOnly _barcodeScanService As BarcodeScanService
 
         Private _activeAssetTag As String = Nothing
+        Private _activeDeviceType As String = Nothing
+        Private _activeSizeCode As String = Nothing
         Private _isDefectiveReturn As Boolean = False
         Private _selectedDefectType As String = Nothing
 
@@ -71,7 +73,7 @@ Namespace SmartLockerKiosk
             InitializeComponent()
             fadeIn = CType(FindResource("FadeInPrompt"), Storyboard)
 
-            ApplyTheme("RYDER")
+            ApplyTheme(AppSettings.SelectedStyle)
 
             _lockerController = lockerController
 
@@ -454,15 +456,15 @@ Namespace SmartLockerKiosk
                 MessageBox.Show("Animation error")
             End Try
 
-            Me.WindowStyle = WindowStyle.None
-            Me.ResizeMode = ResizeMode.NoResize
-            Me.Topmost = True
+            Me.WindowStyle = WindowStyle.SingleBorderWindow
+            Me.ResizeMode = ResizeMode.CanResize
+            Me.Topmost = False
             Me.WindowState = WindowState.Normal
-            Me.Left = 0
-            Me.Top = 0
-            Me.Width = SystemParameters.PrimaryScreenWidth
-            Me.Height = SystemParameters.PrimaryScreenHeight
-            Me.WindowState = WindowState.Maximized
+
+            Me.Width = 800
+            Me.Height = 1200
+            Me.WindowStartupLocation = WindowStartupLocation.CenterScreen
+
 
             KeypadControl.AutoSubmitOnLength = False
             KeypadControl.RequireExactLengthOnSubmit = False
@@ -702,7 +704,7 @@ Namespace SmartLockerKiosk
 
             KeypadControl.Reset()
 
-            ShowPrompt("Select a workflow")
+            ShowPrompt("What would you like to do?")
             FocusHidSink()
 
         End Sub
@@ -1669,7 +1671,20 @@ Namespace SmartLockerKiosk
             SetUiEnabled(False)
 
             Try
-                _activeAssetTag = normalizedAsset
+                Dim result = Await _backend.ValidateAssetAsync(normalizedAsset, CancellationToken.None)
+
+                If Not result.IsValid Then
+                    ShowPrompt(result.Message)
+                    Return
+                End If
+
+                _activeAssetTag = result.AssetTag
+                _activeDeviceType = result.DeviceType
+                _activeSizeCode = result.SizeCode
+
+
+
+
 
                 Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
             .EventType = Audit.AuditEventType.PolicyConfigurationChange,
@@ -2065,7 +2080,7 @@ Namespace SmartLockerKiosk
 
                 ' 🔥 KEY NEW FIELDS
                 locker.Status.CurrentAssetTag = assetTag
-                locker.Status.CurrentDeviceType = ResolveDeviceTypeFromAsset(assetTag)
+                locker.Status.CurrentDeviceType = _activeDeviceType
                 locker.Status.IsDefectiveHold = _isDefectiveReturn
                 locker.Status.DefectType = If(_isDefectiveReturn, _selectedDefectType, Nothing)
 

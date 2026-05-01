@@ -6,7 +6,9 @@
         Title="Locker Access"
         WindowStyle="None"
         ResizeMode="NoResize"
-        WindowState="Maximized"
+        WindowState="Normal"
+        Width="800"
+        Height="1200"
         Background="{DynamicResource BrandBackgroundBrush}"
         WindowStartupLocation="CenterScreen"
         Loaded="LockerAccessWindow_Loaded">

@@ -1,11 +1,13 @@
 ﻿Imports System.Net
 Imports System.Net.Http
 Imports System.Net.Http.Headers
+Imports System.Security.Policy
 Imports System.Text
 Imports System.Text.Json
 Imports System.Text.Json.Serialization
 Imports System.Threading
 Imports System.Threading.Tasks
+Imports System.Windows
 
 Namespace SmartLockerKiosk
 
@@ -28,20 +30,22 @@ Namespace SmartLockerKiosk
             _jsonOpts.Converters.Add(New JsonStringEnumConverter())
         End Sub
         Public Async Function AuthorizeAsync(
-            credential As String,
-            purpose As AuthPurpose,
-            source As String,
-            ct As CancellationToken
-        ) As Task(Of AuthResult) Implements IOperationsBackendService.AuthorizeAsync
+    credential As String,
+    purpose As AuthPurpose,
+    source As String,
+    ct As CancellationToken
+) As Task(Of AuthResult) Implements IOperationsBackendService.AuthorizeAsync
+
+
 
             Dim value = (If(credential, "")).Trim()
 
             If value.Length = 0 Then
                 Return New AuthResult With {
-                    .IsAuthorized = False,
-                    .Purpose = purpose,
-                    .Message = "Empty credential."
-                }
+            .IsAuthorized = False,
+            .Purpose = purpose,
+            .Message = "Empty credential."
+        }
             End If
 
             If AppSettings.TestModeEnabled Then
@@ -52,17 +56,20 @@ Namespace SmartLockerKiosk
 
             Dim requestId = Guid.NewGuid().ToString("N")
             Dim credentialType = MapCredentialTypeForBackend(source)
-            Dim backendPurpose = MapPurposeForBackend(purpose)
+            Dim backendPurpose = MapPurposeForBackend(AuthPurpose.ValidateIdentity)
 
             Dim req As New AuthorizeRequest With {
-                .credential = value,
+                .credentialkey = value,
+                .badgeId = value,
+                .kioskId = AppSettings.KioskID,
+                .siteCode = AppSettings.SiteCode,
+                .clientCode = AppSettings.ClientCode,
+                .locationId = AppSettings.LocationId,
                 .credentialType = credentialType,
                 .purpose = backendPurpose,
-                .kioskId = AppSettings.KioskID,
-                .locationId = AppSettings.LocationId,
                 .timestampUtc = DateTime.UtcNow,
                 .requestId = requestId
-            }
+}
 
             Dim json = JsonSerializer.Serialize(req, _jsonOpts)
 
@@ -70,42 +77,155 @@ Namespace SmartLockerKiosk
                 Using resp = Await _http.SendAsync(msg, ct)
                     Dim body = Await resp.Content.ReadAsStringAsync()
 
+                    Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
+                .EventType = Audit.AuditEventType.AuthenticationAttempt,
+                .ActorType = Audit.ActorType.System,
+                .ActorId = "System:SmartLockerKiosk",
+                .AffectedComponent = "OperationsBackendService.AuthValidate",
+                .Outcome = If(resp.IsSuccessStatusCode,
+                              Audit.AuditOutcome.Success,
+                              Audit.AuditOutcome.Error),
+                .CorrelationId = requestId,
+                .ReasonCode = $"AuthValidateResponse;HTTP={CInt(resp.StatusCode)};Body={body}"
+            })
+
                     If Not resp.IsSuccessStatusCode Then
                         Dim errMsg = ExtractBackendErrorMessage(body, resp)
 
                         Return New AuthResult With {
-                            .IsAuthorized = False,
-                            .Purpose = purpose,
-                            .Message = errMsg
-                        }
+                    .IsAuthorized = False,
+                    .Purpose = purpose,
+                    .Message = errMsg
+                }
                     End If
 
-                    Dim dto = JsonSerializer.Deserialize(Of AuthorizeResponseDto)(body, _jsonOpts)
+                    Dim dto As AuthorizeResponseDto = Nothing
+
+                    Try
+                        dto = JsonSerializer.Deserialize(Of AuthorizeResponseDto)(body, _jsonOpts)
+
+                    Catch ex As JsonException
+
+                        Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
+                    .EventType = Audit.AuditEventType.AuthenticationAttempt,
+                    .ActorType = Audit.ActorType.System,
+                    .ActorId = "System:SmartLockerKiosk",
+                    .AffectedComponent = "OperationsBackendService.AuthValidate",
+                    .Outcome = Audit.AuditOutcome.Error,
+                    .CorrelationId = requestId,
+                    .ReasonCode = $"AuthValidateJsonException;HTTP={CInt(resp.StatusCode)};Body={body};Error={ex.Message}"
+                })
+
+                        Return New AuthResult With {
+                    .IsAuthorized = False,
+                    .Purpose = purpose,
+                    .Message = "Backend response was not valid auth JSON."
+                }
+
+                    End Try
+
+                    If dto Is Nothing Then
+                        Return New AuthResult With {
+                    .IsAuthorized = False,
+                    .Purpose = purpose,
+                    .Message = "Backend returned an empty auth response."
+                }
+                    End If
 
                     Dim result As New AuthResult With {
-                        .IsAuthorized = (dto IsNot Nothing AndAlso dto.isAuthorized),
-                        .Purpose = purpose,
-                        .UserId = If(dto IsNot Nothing, dto.userId, Nothing),
-                        .DisplayName = If(dto IsNot Nothing, dto.displayName, Nothing),
-                        .Message = If(dto IsNot Nothing AndAlso dto.isAuthorized, "OK", "Credential not recognized"),
-                        .SessionToken = If(dto IsNot Nothing, dto.sessionToken, Nothing),
-                        .WorkOrders = New List(Of WorkOrderAuthItem)()
-                    }
+                .IsAuthorized = dto.isAuthorized,
+                .Purpose = purpose,
+                .UserId = dto.userId,
+                .DisplayName = dto.displayName,
+                .Message = If(dto.isAuthorized, "OK", "Credential not recognized"),
+                .SessionToken = dto.sessionToken,
+                .WorkOrders = New List(Of WorkOrderAuthItem)()
+            }
 
-                    If dto IsNot Nothing AndAlso dto.workOrders IsNot Nothing Then
+                    If dto.workOrders IsNot Nothing Then
                         For Each w In dto.workOrders
+                            If w Is Nothing Then Continue For
+
                             result.WorkOrders.Add(New WorkOrderAuthItem With {
-                                .WorkOrderNumber = w.workOrderNumber,
-                                .TransactionType = w.transactionType,
-                                .LockerNumber = w.lockerNumber,
-                                .AllowedSizeCode = w.allowedSizeCode
-                            })
+                        .WorkOrderNumber = w.workOrderNumber,
+                        .TransactionType = w.transactionType,
+                        .LockerNumber = w.lockerNumber,
+                        .AllowedSizeCode = w.allowedSizeCode
+                    })
                         Next
                     End If
 
                     Return result
+
+                End Using
+
+            End Using
+
+        End Function
+        Public Async Function ValidateAssetAsync(
+    assetTag As String,
+    ct As CancellationToken
+) As Task(Of AssetValidateResponse) _
+    Implements IOperationsBackendService.ValidateAssetAsync
+
+            Dim requestId = Guid.NewGuid().ToString("N")
+
+            Dim req As New AssetValidateRequest With {
+        .assetTag = assetTag,
+        .credentialKey = Nothing,
+        .kioskId = AppSettings.KioskID,
+        .siteCode = AppSettings.SiteCode,
+        .locationId = AppSettings.LocationId,
+        .clientCode = AppSettings.ClientCode,
+        .workflow = "asset-deposit",
+        .timestampUtc = DateTime.UtcNow,
+        .requestId = requestId
+    }
+
+            Dim json = JsonSerializer.Serialize(req, New JsonSerializerOptions With {
+        .WriteIndented = True
+    })
+
+            Using msg = CreateJsonRequest(HttpMethod.Post, "/asset/validate", requestId, json)
+                Using resp = Await _http.SendAsync(msg, ct)
+
+                    Dim body = Await resp.Content.ReadAsStringAsync()
+
+                    MessageBox.Show(
+                "URL: " & AppSettings.BaseApiUrl &
+                Environment.NewLine &
+                "Route: /asset/validate" &
+                Environment.NewLine & Environment.NewLine &
+                "----- REQUEST -----" &
+                Environment.NewLine &
+                json &
+                Environment.NewLine & Environment.NewLine &
+                "HTTP " & CInt(resp.StatusCode).ToString() & " " & resp.ReasonPhrase &
+                Environment.NewLine & Environment.NewLine &
+                "----- RESPONSE -----" &
+                Environment.NewLine &
+                body,
+                "Asset Validation Debug")
+
+                    If Not resp.IsSuccessStatusCode Then
+                        Return New AssetValidateResponse With {
+                    .isValid = False,
+                    .message = "Backend error"
+                }
+                    End If
+
+                    Try
+                        Return JsonSerializer.Deserialize(Of AssetValidateResponse)(body, _jsonOpts)
+                    Catch
+                        Return New AssetValidateResponse With {
+                    .isValid = False,
+                    .message = "Invalid response"
+                }
+                    End Try
+
                 End Using
             End Using
+
         End Function
         Public Async Function ReserveLockerAsync(
             workOrderNumber As String,
@@ -234,31 +354,39 @@ Namespace SmartLockerKiosk
             Return result
         End Function
         Private Function CreateJsonRequest(
-            method As HttpMethod,
-            relativePath As String,
-            requestId As String,
-            jsonBody As String,
-            Optional bearerToken As String = Nothing
-        ) As HttpRequestMessage
+    method As HttpMethod,
+    relativePath As String,
+    requestId As String,
+    jsonBody As String,
+    Optional bearerToken As String = Nothing
+) As HttpRequestMessage
 
             AppSettings.RequireBackendConfig()
 
+            Dim baseUrl = AppSettings.BaseApiUrl.TrimEnd("/"c)
             Dim path = (If(relativePath, "")).Trim().TrimStart("/"c)
+            Dim url = $"{baseUrl}/{path}"
 
-            Dim msg As New HttpRequestMessage(method, New Uri(path, UriKind.Relative))
+            Dim msg As New HttpRequestMessage(method, New Uri(url, UriKind.Absolute))
+
             msg.Headers.Add("X-Request-Id", requestId)
             msg.Headers.Add("X-Kiosk-Id", AppSettings.KioskID)
             msg.Headers.Add("X-Api-Key", AppSettings.DeviceApiKey)
 
             If Not String.IsNullOrWhiteSpace(bearerToken) Then
-                msg.Headers.Authorization = New AuthenticationHeaderValue("Bearer", bearerToken)
+                msg.Headers.Authorization =
+            New AuthenticationHeaderValue("Bearer", bearerToken)
             End If
 
             msg.Content = New StringContent(jsonBody, Encoding.UTF8, "application/json")
+
             Return msg
+
         End Function
-        Private Function MapPurposeForBackend(p As AuthPurpose) As String
-            Select Case p
+        Private Function MapPurposeForBackend(purpose As AuthPurpose) As String
+            Select Case purpose
+                Case AuthPurpose.ValidateIdentity
+                    Return "auth.validate"
                 Case AuthPurpose.PickupAccess
                     Return "Pickup"
                 Case AuthPurpose.DeliveryCourierAuth
@@ -266,9 +394,9 @@ Namespace SmartLockerKiosk
                 Case AuthPurpose.AdminAccess
                     Return "Admin"
                 Case AuthPurpose.DayUseStart
-                    Return "DayUseStart"
+                    Return "DayUse"
                 Case Else
-                    Return p.ToString()
+                    Return "auth.validate"
             End Select
         End Function
         Private Function MapCredentialTypeForBackend(source As String) As String
@@ -311,7 +439,6 @@ Namespace SmartLockerKiosk
             If value.Length <= maxLen Then Return value
             Return value.Substring(0, maxLen) & "..."
         End Function
-
         Public Async Function AuthorizeLockerActionAsync(
     dto As LockerAuthorizeRequestDto,
     bearerToken As String,
@@ -355,7 +482,6 @@ Namespace SmartLockerKiosk
             End Using
 
         End Function
-
         Public Async Function AckLockerActionAsync(
             dto As LockerAckRequestDto,
             bearerToken As String,
@@ -400,7 +526,6 @@ Namespace SmartLockerKiosk
             End Using
 
         End Function
-
         Private Function BuildTestLockerAuthorizeResponse(dto As LockerAuthorizeRequestDto) As LockerAuthorizeResponseDto
             Return New LockerAuthorizeResponseDto With {
                 .transactionId = "txn_" & Guid.NewGuid().ToString("N"),
@@ -418,7 +543,6 @@ Namespace SmartLockerKiosk
                 }
             }
         End Function
-
     End Class
 
 End Namespace

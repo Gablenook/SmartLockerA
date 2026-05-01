@@ -96,6 +96,7 @@ Namespace SmartLockerKiosk
             ReDim _haveLastShownB(TotalRelays - 1)
             ReDim _lastShownOpenB(TotalRelays - 1)
             ReDim _closedStreakB(TotalRelays - 1)
+
         End Sub
         Private Sub Window_Loaded(sender As Object, e As RoutedEventArgs) Handles Me.Loaded
             If String.IsNullOrWhiteSpace(ActorId) Then ActorId = "System:Commissioning"
@@ -214,6 +215,8 @@ Namespace SmartLockerKiosk
                 SetCallToAction(OpenAllButton, False)
             End Try
         End Sub
+
+
 
         ' ---------- Events ----------
         Private Sub OnBranchStatusUpdated(branch As String)

@@ -154,7 +154,7 @@ Public Class SmartLockerApiClient
     End Function
     Public Async Function AuthorizeAsync(credential As String, credentialType As String, purpose As String) As Task(Of ApiResult(Of AuthorizeResponse))
         Dim req As New AuthorizeRequest With {
-            .credential = credential,
+            .credentialkey = credential,
             .credentialType = credentialType,
             .purpose = purpose,
             .kioskId = _kioskId,

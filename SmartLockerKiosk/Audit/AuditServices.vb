@@ -1,4 +1,6 @@
 ﻿Imports System.IO
+Imports System.Windows
+Imports SmartLockerKiosk.SmartLockerKiosk
 
 Namespace Audit
 
@@ -35,9 +37,11 @@ Namespace Audit
                 If Logger IsNot Nothing Then
                     Logger.Log(ev)
                 End If
-            Catch
-                ' Intentionally swallow: audit logging must not crash kiosk UI.
-                ' Later you can route this to Windows Event Log / fallback sink.
+            Catch ex As Exception
+                TraceLogger.LogExceptionDeep("AUDIT_SAFELOG_FAIL", ex)
+
+                ' TEMP: surface it to prove it's this path
+                MessageBox.Show("AUDIT FAIL: " & ex.ToString())
             End Try
         End Sub
 

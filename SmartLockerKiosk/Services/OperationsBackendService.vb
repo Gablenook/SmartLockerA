@@ -36,29 +36,36 @@ Namespace SmartLockerKiosk
     ct As CancellationToken
 ) As Task(Of AuthResult) Implements IOperationsBackendService.AuthorizeAsync
 
+            Try
+                MessageBox.Show("INSIDE EDITED OperationsBackendService.AuthorizeAsync")
 
+                TraceLogger.Log("AUTHORIZE ENTER Backend=" & Me.GetType().FullName)
+                TraceLogger.Log("AUTHORIZE TestModeEnabled=" & AppSettings.TestModeEnabled.ToString())
+                TraceLogger.Log("TESTMODE=" & AppSettings.TestModeEnabled.ToString())
 
-            Dim value = (If(credential, "")).Trim()
+                Dim value As String = If(credential, "").Trim()
 
-            If value.Length = 0 Then
-                Return New AuthResult With {
+                If value.Length = 0 Then
+                    Return New AuthResult With {
             .IsAuthorized = False,
             .Purpose = purpose,
             .Message = "Empty credential."
         }
-            End If
+                End If
 
-            If AppSettings.TestModeEnabled Then
-                Return BuildTestAuthResult(value, purpose)
-            End If
+                If AppSettings.TestModeEnabled Then
+                    Return BuildTestAuthResult(value, purpose)
+                End If
 
-            AppSettings.RequireBackendConfig()
+                Dim requestId As String = Guid.NewGuid().ToString("N")
 
-            Dim requestId = Guid.NewGuid().ToString("N")
-            Dim credentialType = MapCredentialTypeForBackend(source)
-            Dim backendPurpose = MapPurposeForBackend(AuthPurpose.ValidateIdentity)
+                Try
+                    AppSettings.RequireBackendConfig()
 
-            Dim req As New AuthorizeRequest With {
+                    Dim credentialType = MapCredentialTypeForBackend(source)
+                    Dim backendPurpose = MapPurposeForBackend(AuthPurpose.ValidateIdentity)
+
+                    Dim req As New AuthorizeRequest With {
                 .credentialkey = value,
                 .badgeId = value,
                 .kioskId = AppSettings.KioskID,
@@ -69,97 +76,130 @@ Namespace SmartLockerKiosk
                 .purpose = backendPurpose,
                 .timestampUtc = DateTime.UtcNow,
                 .requestId = requestId
-}
-
-            Dim json = JsonSerializer.Serialize(req, _jsonOpts)
-
-            Using msg = CreateJsonRequest(HttpMethod.Post, ApiRoutes.AuthAuthorize, requestId, json)
-                Using resp = Await _http.SendAsync(msg, ct)
-                    Dim body = Await resp.Content.ReadAsStringAsync()
-
-                    Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
-                .EventType = Audit.AuditEventType.AuthenticationAttempt,
-                .ActorType = Audit.ActorType.System,
-                .ActorId = "System:SmartLockerKiosk",
-                .AffectedComponent = "OperationsBackendService.AuthValidate",
-                .Outcome = If(resp.IsSuccessStatusCode,
-                              Audit.AuditOutcome.Success,
-                              Audit.AuditOutcome.Error),
-                .CorrelationId = requestId,
-                .ReasonCode = $"AuthValidateResponse;HTTP={CInt(resp.StatusCode)};Body={body}"
-            })
-
-                    If Not resp.IsSuccessStatusCode Then
-                        Dim errMsg = ExtractBackendErrorMessage(body, resp)
-
-                        Return New AuthResult With {
-                    .IsAuthorized = False,
-                    .Purpose = purpose,
-                    .Message = errMsg
-                }
-                    End If
-
-                    Dim dto As AuthorizeResponseDto = Nothing
-
-                    Try
-                        dto = JsonSerializer.Deserialize(Of AuthorizeResponseDto)(body, _jsonOpts)
-
-                    Catch ex As JsonException
-
-                        Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
-                    .EventType = Audit.AuditEventType.AuthenticationAttempt,
-                    .ActorType = Audit.ActorType.System,
-                    .ActorId = "System:SmartLockerKiosk",
-                    .AffectedComponent = "OperationsBackendService.AuthValidate",
-                    .Outcome = Audit.AuditOutcome.Error,
-                    .CorrelationId = requestId,
-                    .ReasonCode = $"AuthValidateJsonException;HTTP={CInt(resp.StatusCode)};Body={body};Error={ex.Message}"
-                })
-
-                        Return New AuthResult With {
-                    .IsAuthorized = False,
-                    .Purpose = purpose,
-                    .Message = "Backend response was not valid auth JSON."
-                }
-
-                    End Try
-
-                    If dto Is Nothing Then
-                        Return New AuthResult With {
-                    .IsAuthorized = False,
-                    .Purpose = purpose,
-                    .Message = "Backend returned an empty auth response."
-                }
-                    End If
-
-                    Dim result As New AuthResult With {
-                .IsAuthorized = dto.isAuthorized,
-                .Purpose = purpose,
-                .UserId = dto.userId,
-                .DisplayName = dto.displayName,
-                .Message = If(dto.isAuthorized, "OK", "Credential not recognized"),
-                .SessionToken = dto.sessionToken,
-                .WorkOrders = New List(Of WorkOrderAuthItem)()
             }
 
-                    If dto.workOrders IsNot Nothing Then
-                        For Each w In dto.workOrders
-                            If w Is Nothing Then Continue For
+                    Dim json = JsonSerializer.Serialize(req, _jsonOpts)
 
-                            result.WorkOrders.Add(New WorkOrderAuthItem With {
-                        .WorkOrderNumber = w.workOrderNumber,
-                        .TransactionType = w.transactionType,
-                        .LockerNumber = w.lockerNumber,
-                        .AllowedSizeCode = w.allowedSizeCode
-                    })
-                        Next
-                    End If
+                    TraceLogger.Log("AUTH REQUEST " & requestId & " URL=" & ApiRoutes.AuthAuthorize)
+                    TraceLogger.Log("AUTH REQUEST BODY=" & json)
 
-                    Return result
+                    Using msg = CreateJsonRequest(HttpMethod.Post, ApiRoutes.AuthAuthorize, requestId, json)
+                        Using resp = Await _http.SendAsync(msg, ct)
 
-                End Using
+                            Dim body As String = Await resp.Content.ReadAsStringAsync()
 
-            End Using
+                            'Debug code
+                            TraceLogger.Log("========== BACKEND AUTH TRACE ==========")
+                            TraceLogger.Log("RequestId=" & requestId)
+                            TraceLogger.Log("URL=" & ApiRoutes.AuthAuthorize)
+                            TraceLogger.Log("HTTP=" & CInt(resp.StatusCode).ToString())
+                            TraceLogger.Log("IsSuccess=" & resp.IsSuccessStatusCode.ToString())
+                            TraceLogger.Log("REQUEST JSON=" & json)
+                            TraceLogger.Log("RESPONSE BODY=" & body)
+                            TraceLogger.Log("========== END BACKEND AUTH TRACE ==========")
+                            'End debug code
+
+                            TraceLogger.Log("AUTH RESPONSE " & requestId & " HTTP=" & CInt(resp.StatusCode).ToString())
+                            TraceLogger.Log("AUTH RESPONSE BODY=" & body)
+
+                            Try
+                                Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
+                            .EventType = Audit.AuditEventType.AuthenticationAttempt,
+                            .ActorType = Audit.ActorType.System,
+                            .ActorId = "System:SmartLockerKiosk",
+                            .AffectedComponent = "OperationsBackendService.AuthValidate",
+                            .Outcome = If(resp.IsSuccessStatusCode,
+                                          Audit.AuditOutcome.Success,
+                                          Audit.AuditOutcome.Error),
+                            .CorrelationId = requestId,
+                            .ReasonCode = $"AuthValidateResponse;HTTP={CInt(resp.StatusCode)};Body={body}"
+                        })
+                            Catch auditEx As Exception
+                                TraceLogger.LogExceptionDeep("AUTH_AUDIT_SAFELOG_THROW", auditEx)
+                            End Try
+
+                            If Not resp.IsSuccessStatusCode Then
+                                Return New AuthResult With {
+                            .IsAuthorized = False,
+                            .Purpose = purpose,
+                            .Message = "Backend authorization service returned an error."
+                        }
+                            End If
+
+                            Dim dto As AuthorizeResponseDto = Nothing
+
+                            Try
+                                dto = JsonSerializer.Deserialize(Of AuthorizeResponseDto)(body, _jsonOpts)
+                            Catch jsonEx As JsonException
+                                TraceLogger.LogExceptionDeep("AUTH_RESPONSE_JSON_FAIL", jsonEx)
+
+                                Return New AuthResult With {
+                            .IsAuthorized = False,
+                            .Purpose = purpose,
+                            .Message = "Backend response was not valid auth JSON."
+                        }
+                            End Try
+
+                            If dto Is Nothing Then
+                                Return New AuthResult With {
+                            .IsAuthorized = False,
+                            .Purpose = purpose,
+                            .Message = "Backend returned an empty auth response."
+                        }
+                            End If
+
+                            Dim result As New AuthResult With {
+                        .IsAuthorized = dto.isAuthorized,
+                        .Purpose = purpose,
+                        .UserId = dto.userId,
+                        .DisplayName = dto.displayName,
+                        .Message = If(dto.isAuthorized, "OK", "Credential not recognized"),
+                        .SessionToken = dto.sessionToken,
+                        .WorkOrders = New List(Of WorkOrderAuthItem)()
+                    }
+
+                            If dto.workOrders IsNot Nothing Then
+                                For Each w In dto.workOrders
+                                    If w Is Nothing Then Continue For
+
+                                    result.WorkOrders.Add(New WorkOrderAuthItem With {
+                                .WorkOrderNumber = w.workOrderNumber,
+                                .TransactionType = w.transactionType,
+                                .LockerNumber = w.lockerNumber,
+                                .AllowedSizeCode = w.allowedSizeCode
+                            })
+                                Next
+                            End If
+
+                            Return result
+
+                        End Using
+                    End Using
+
+                Catch ex As OperationCanceledException
+                    TraceLogger.LogExceptionDeep("AUTH_AUTHORIZE_CANCELLED", ex)
+
+                    Return New AuthResult With {
+                .IsAuthorized = False,
+                .Purpose = purpose,
+                .Message = "Authorization request was cancelled."
+            }
+
+                Catch ex As Exception
+                    TraceLogger.LogExceptionDeep("AUTH_AUTHORIZE_FAIL", ex)
+
+                    Return New AuthResult With {
+                .IsAuthorized = False,
+                .Purpose = purpose,
+                .Message = "Credential validation failed."
+            }
+                End Try
+            Catch ex As Exception
+                TraceLogger.LogExceptionDeep("AUTHORIZE_CRASH", ex)
+                MessageBox.Show("AUTHORIZE CRASH: " & ex.ToString())
+                Throw
+            End Try
+
 
         End Function
         Public Async Function ValidateAssetAsync(

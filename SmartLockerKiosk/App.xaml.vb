@@ -34,6 +34,20 @@ Namespace SmartLockerKiosk
             Me.MainWindow = w
             w.Show()
 
+            'Debug code
+            AddHandler Application.Current.DispatcherUnhandledException,
+    Sub(sender, dispatchArgs)
+        TraceLogger.LogExceptionDeep("DISPATCHER_UNHANDLED", dispatchArgs.Exception)
+
+        MessageBox.Show("Dispatcher Exception: " & dispatchArgs.Exception.ToString())
+
+        ' Prevent crash
+        dispatchArgs.Handled = True
+    End Sub
+            'end debug code
+
+
+
         End Sub
 
         ' -------------------------

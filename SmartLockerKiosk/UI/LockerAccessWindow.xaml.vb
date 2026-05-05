@@ -1,4 +1,5 @@
-﻿Imports System.Net
+﻿Imports System.ComponentModel
+Imports System.Net
 Imports System.Net.Http
 Imports System.Net.Http.Headers
 Imports System.Runtime.InteropServices
@@ -17,9 +18,9 @@ Imports Microsoft.EntityFrameworkCore
 Imports SmartLockerKiosk.Audit
 
 
+
 Namespace SmartLockerKiosk
     Partial Public Class LockerAccessWindow
-        'Revision 1.00
         Inherits Window
         Private fadeIn As Storyboard
 
@@ -76,6 +77,9 @@ Namespace SmartLockerKiosk
             ApplyTheme(AppSettings.SelectedStyle)
 
             _lockerController = lockerController
+
+            TraceLogger.Log("CTOR UseBackendBypass=" & AppSettings.UseBackendBypass.ToString())
+            TraceLogger.Log("CTOR TestModeEnabled=" & AppSettings.TestModeEnabled.ToString())
 
             If AppSettings.UseBackendBypass Then
                 _backend = New BypassOperationsBackendService()
@@ -494,6 +498,18 @@ Namespace SmartLockerKiosk
         .ReasonCode = "LockerAccessWindowLoaded"
     })
 
+            'Debug code
+            Dim dpd = DependencyPropertyDescriptor.FromProperty(TextBlock.TextProperty, GetType(TextBlock))
+
+            dpd.AddValueChanged(UserPromptText,
+    Sub()
+        TraceLogger.Log("USERPROMPTTEXT CHANGED TO: " & UserPromptText.Text)
+        TraceLogger.Log("STACK: " & Environment.StackTrace)
+    End Sub)
+            'End debug code
+
+
+
             FocusHidSink()
         End Sub
         Private Sub LockerAccessWindow_Activated(sender As Object, e As EventArgs) Handles Me.Activated
@@ -752,6 +768,23 @@ Namespace SmartLockerKiosk
                 TraceToFile("SHOWPROMPT: " & text)
             End If
 
+            'Test Code
+            If text IsNot Nothing AndAlso
+       text.Contains("Microsoft.EntityFrameworkCore.SqlServer") Then
+
+                TraceToFile("========== SHOWPROMPT SQLSERVER ERROR ==========")
+                TraceToFile("TEXT=" & text)
+                TraceToFile(Environment.StackTrace)
+                TraceToFile("========== END SHOWPROMPT SQLSERVER ERROR ==========")
+
+                MessageBox.Show("ShowPrompt is receiving SQL Server error. Check trace file.")
+            End If
+            'End Test Code
+
+
+
+
+
             UserPromptText.Text = text
             SafeFadeIn()
         End Sub
@@ -994,12 +1027,27 @@ Namespace SmartLockerKiosk
             Dim result As AuthResult = Nothing
 
             Try
+                'debug code
+                TraceToFile("AUTH_VALIDATE_START")
+                TraceToFile("Purpose=" & purpose.ToString())
+                TraceToFile("Source=" & source)
+                'end debug
+
                 result = Await ValidateCredentialWithServerAsync(credential, purpose, source)
+
+                'debug code
+                TraceToFile("AUTH_VALIDATE_SUCCESS")
+                'end debug
 
             Catch ex As Exception
                 If myEpoch <> _uiEpoch Then Return
 
                 TraceToFile("AUTH_EXCEPTION: " & ex.GetType().FullName & " :: " & ex.Message)
+
+                'debug code
+                TraceExceptionDeep("AUTH_VALIDATE_EXCEPTION", ex)
+                Throw
+                'end debug
 
                 AuditAuthError(actionId, isAdminFlow, "AuthException:" & ex.GetType().Name)
 
@@ -1044,11 +1092,60 @@ Namespace SmartLockerKiosk
 
             Await ContinueWorkflowAfterAuthAsync(result)
         End Sub
+
+        'debug helper to log detailed exception info, including inner exceptions and specific handling for common reflection and file exceptions that may occur during auth validation
+        Private Sub TraceExceptionDeep(label As String, ex As Exception)
+            Try
+                TraceToFile("========== " & label & " ==========")
+
+                Dim current As Exception = ex
+                Dim level As Integer = 0
+
+                While current IsNot Nothing
+                    TraceToFile($"[{level}] Type: {current.GetType().FullName}")
+                    TraceToFile($"[{level}] Message: {current.Message}")
+                    TraceToFile($"[{level}] Source: {current.Source}")
+
+                    If current.TargetSite IsNot Nothing Then
+                        TraceToFile($"[{level}] TargetSite: {current.TargetSite.DeclaringType?.FullName}.{current.TargetSite.Name}")
+                    End If
+
+                    TraceToFile($"[{level}] StackTrace:")
+                    TraceToFile(current.StackTrace)
+
+                    Dim fileEx = TryCast(current, System.IO.FileNotFoundException)
+                    If fileEx IsNot Nothing Then
+                        TraceToFile($"[{level}] FileName: {fileEx.FileName}")
+                        TraceToFile($"[{level}] FusionLog: {fileEx.FusionLog}")
+                    End If
+
+                    Dim loadEx = TryCast(current, Reflection.ReflectionTypeLoadException)
+                    If loadEx IsNot Nothing Then
+                        TraceToFile($"[{level}] LoaderExceptions:")
+                        For Each loaderEx In loadEx.LoaderExceptions
+                            TraceExceptionDeep("LOADER_EXCEPTION", loaderEx)
+                        Next
+                    End If
+
+                    current = current.InnerException
+                    level += 1
+                End While
+
+                TraceToFile("========== END " & label & " ==========")
+
+            Catch traceEx As Exception
+                MessageBox.Show("Failed while tracing exception: " & traceEx.Message)
+            End Try
+        End Sub
+
+
         Private Async Function ValidateCredentialWithServerAsync(
     scanValue As String,
     purpose As AuthPurpose,
     source As String
 ) As Task(Of AuthResult)
+
+            MessageBox.Show("Backend instance = " & _backend.GetType().FullName)
 
             Return Await _backend.AuthorizeAsync(scanValue, purpose, source, CancellationToken.None)
         End Function
@@ -1662,7 +1759,7 @@ Namespace SmartLockerKiosk
             Dim validationError As String = Nothing
 
             If Not NormalizeAssetTag(assetRaw, normalizedAsset, validationError) Then
-                ShowPrompt(validationError)
+                ShowPrompt("**" & validationError)
                 FocusHidSink()
                 Return
             End If
@@ -1674,7 +1771,7 @@ Namespace SmartLockerKiosk
                 Dim result = Await _backend.ValidateAssetAsync(normalizedAsset, CancellationToken.None)
 
                 If Not result.IsValid Then
-                    ShowPrompt(result.Message)
+                    ShowPrompt("***" * result.message)
                     Return
                 End If
 
@@ -1866,7 +1963,7 @@ Namespace SmartLockerKiosk
             If myEpoch <> _uiEpoch Then Return
 
             If Not String.IsNullOrWhiteSpace(errorMessage) Then
-                ShowPrompt(errorMessage)
+                ShowPrompt("****" * errorMessage)
             End If
 
             If endSessionAfterDelay Then
@@ -2551,7 +2648,7 @@ Namespace SmartLockerKiosk
             If myEpoch <> _uiEpoch Then Return
 
             If Not String.IsNullOrWhiteSpace(errorMessage) Then
-                ShowPrompt(errorMessage)
+                ShowPrompt("*" & errorMessage)
             End If
 
             If endSessionAfterDelay Then

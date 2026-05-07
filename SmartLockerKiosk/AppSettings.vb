@@ -128,6 +128,7 @@
         Public Shared Property UseBackendBypass As Boolean = True
         Public Shared Property TestModeEnabled As Boolean = True
 
+        Public Shared Property CommissioningUsesTestMode As Boolean = True
         Public Shared Property TestCommissioningCode As String = "123456"
         Public Shared Property TestAdminCredential As String = "123698740"
         Public Shared Property TestCourierCredential As String = "123698740"

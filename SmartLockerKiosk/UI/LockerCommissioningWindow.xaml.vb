@@ -99,15 +99,17 @@ Namespace SmartLockerKiosk
 
         End Sub
         Private Sub Window_Loaded(sender As Object, e As RoutedEventArgs) Handles Me.Loaded
-            If String.IsNullOrWhiteSpace(ActorId) Then ActorId = "System:Commissioning"
-            If String.IsNullOrWhiteSpace(KioskId) Then KioskId = "KIOSK-UNKNOWN"
+
+            ApplyLocalCommissioningSettings()
+
+            If String.IsNullOrWhiteSpace(ActorId) Then ActorId = "LOCAL-COMMISSIONING"
+            If String.IsNullOrWhiteSpace(KioskId) Then KioskId = AppSettings.KioskID
 
             _vm.InitCells()
 
             WireServiceEventsOnce()
             RefreshBranchTitles()
 
-            ' Initial UI state
             StartControllersButton.IsEnabled = True
             OpenAllButton.IsEnabled = False
             ConfirmedButton.IsEnabled = False
@@ -118,6 +120,7 @@ Namespace SmartLockerKiosk
             SetCallToAction(StartControllersButton, True)
             SetCallToAction(OpenAllButton, False)
             StatusText.Text = "Step 1: Connect Controllers."
+
         End Sub
         Private Sub Window_Closing(sender As Object, e As CancelEventArgs) Handles Me.Closing
             ' Best-effort shutdown
@@ -1028,6 +1031,26 @@ Namespace SmartLockerKiosk
             For Each row In boards
                 targetBoards.Add(row)
             Next
+        End Sub
+        Private Sub ApplyLocalCommissioningSettings()
+
+            TraceLogger.Log("COMMISSIONING using hard-wired local commissioning settings.")
+
+            AppSettings.KioskID = "RYDER-KIOSK-01"
+            AppSettings.SiteCode = "RYDER-CONYERS-01"
+            AppSettings.ClientCode = "RYDER"
+            AppSettings.LocationId = "RYDER-CONYERS-GA-01"
+
+            ' Important:
+            ' Do NOT set AppSettings.TestModeEnabled=True here.
+            ' Normal demo operations should still run live.
+
+            Me.KioskId = AppSettings.KioskID
+
+            If String.IsNullOrWhiteSpace(Me.ActorId) Then
+                Me.ActorId = "LOCAL-COMMISSIONING"
+            End If
+
         End Sub
     End Class
 

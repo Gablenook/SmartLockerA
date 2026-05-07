@@ -6,6 +6,7 @@
     Public Const LockerAuthorize As String = "/locker/authorize"
     Public Const LockerAck As String = "/locker/ack"
     Public Const LockerReconcile As String = "/locker/reconcile"
+    Public Const AssetValidate As String = "/api/assets/validate"
     Public Const AuthWorkOrder As String = ""        'Old test mode endpoint, not used in production. Remove when no longer needed.
 
     '####  Commissioning APIs  ####

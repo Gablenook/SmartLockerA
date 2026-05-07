@@ -1,5 +1,6 @@
 ﻿Public Class AuthorizeRequest
     Public Property credentialkey As String
+    Public Property credential As String
     Public Property badgeId As String
     Public Property kioskId As String
     Public Property siteCode As String

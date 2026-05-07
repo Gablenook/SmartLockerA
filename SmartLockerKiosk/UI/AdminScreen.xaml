@@ -3,10 +3,12 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Admin Panel"
         WindowStartupLocation="CenterScreen"
-        WindowState="Maximized"
-        WindowStyle="None"
-        ResizeMode="NoResize"
-        Topmost="True"
+        WindowState="Normal"
+        WindowStyle="SingleBorderWindow"
+        ResizeMode="CanResize"
+        Topmost="False"
+        Width="900"
+        Height="1100"
         Background="#00205B">
 
     <Window.Resources>
@@ -37,7 +39,7 @@
     <Grid x:Name="RootGrid">
 
         <!-- Scale the whole admin UI to the screen, like the kiosk -->
-        <Viewbox Stretch="Uniform">
+       
             <!-- Design surface -->
             <Grid Width="800" Height="1200" Background="#00205B" Margin="20">
 
@@ -231,7 +233,7 @@
                 </Border>
 
             </Grid>
-        </Viewbox>
+        
     </Grid>
 </Window>
 

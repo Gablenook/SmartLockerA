@@ -21,6 +21,10 @@ Public Class BarcodeScanService
     Public Property MaxLength As Integer = 128
     Public Property IsEnabled As Boolean = True
 
+    Private WithEvents _idleTimer As New System.Windows.Threading.DispatcherTimer With {
+    .Interval = TimeSpan.FromMilliseconds(350)
+}
+
     ''' <summary>
     ''' Optional custom validator.
     ''' When Nothing, the service performs only structural validation
@@ -28,10 +32,8 @@ Public Class BarcodeScanService
     ''' </summary>
     Public Property Validator As Func(Of String, ScanValidationResult)
 
-    '----------------------------------------
-    ' INPUT ENTRY POINTS
-    '----------------------------------------
 
+    ' INPUT ENTRY POINTS
     Public Sub HandleTextInput(text As String)
         If Not IsEnabled Then Return
         If String.IsNullOrEmpty(text) Then Return
@@ -40,7 +42,6 @@ Public Class BarcodeScanService
             HandleChar(ch)
         Next
     End Sub
-
     Public Sub HandleKeyDown(key As Key)
         If Not IsEnabled Then Return
 
@@ -49,14 +50,12 @@ Public Class BarcodeScanService
         End If
     End Sub
 
-    '----------------------------------------
     ' CORE PROCESSING
-    '----------------------------------------
 
     Private Sub HandleChar(ch As Char)
         Dim nowUtc As DateTime = DateTime.UtcNow
 
-        ' If CR already finalized the scan, ignore the immediate LF that often follows.
+        ' Ignore LF immediately following a CR terminator.
         If _ignoreLeadingLf AndAlso ch = ControlChars.Lf Then
             _ignoreLeadingLf = False
             RaiseEvent Trace("Ignored LF following CR terminator.")
@@ -65,20 +64,20 @@ Public Class BarcodeScanService
 
         _ignoreLeadingLf = False
 
-        ' If enough time has passed since the previous character, abandon any partial buffer.
+        ' If a previous scan is sitting in the buffer and no terminator arrived,
+        ' treat the idle gap as the end of that scan.
         If _lastCharUtc <> DateTime.MinValue AndAlso
-           (nowUtc - _lastCharUtc).TotalMilliseconds > ScanTimeoutMs Then
+       (nowUtc - _lastCharUtc).TotalMilliseconds > ScanTimeoutMs Then
 
             If _buffer.Length > 0 Then
-                RaiseEvent Trace($"Buffer timeout after {(nowUtc - _lastCharUtc).TotalMilliseconds:F0} ms. Clearing partial scan '{_buffer}'.")
+                RaiseEvent Trace($"Buffer timeout after {(nowUtc - _lastCharUtc).TotalMilliseconds:F0} ms. Finalizing partial scan '{_buffer}'.")
+                FinalizeScan("Timeout")
             End If
-
-            _buffer.Clear()
         End If
 
         _lastCharUtc = nowUtc
 
-        ' Terminators finalize the scan.
+        ' Terminators finalize the current scan.
         If ch = ControlChars.Cr Then
             FinalizeScan("CR")
             _ignoreLeadingLf = True
@@ -111,9 +110,11 @@ Public Class BarcodeScanService
         End If
 
         _buffer.Append(ch)
-    End Sub
 
+        RestartIdleTimer()
+    End Sub
     Private Sub FinalizeScan(source As String)
+        _idleTimer.Stop()
         Dim raw As String = _buffer.ToString()
         _buffer.Clear()
 
@@ -148,10 +149,7 @@ Public Class BarcodeScanService
         RaiseEvent ScanCompleted(text)
     End Sub
 
-    '----------------------------------------
     ' VALIDATION
-    '----------------------------------------
-
     Private Function ValidateScan(text As String) As ScanValidationResult
         If text Is Nothing Then
             Return ScanValidationResult.Invalid("Scan was null.")
@@ -183,10 +181,7 @@ Public Class BarcodeScanService
         Return customResult
     End Function
 
-    '----------------------------------------
     ' HELPERS
-    '----------------------------------------
-
     Private Function ContainsControlChars(value As String) As Boolean
         For Each ch As Char In value
             If Char.IsControl(ch) Then Return True
@@ -194,7 +189,6 @@ Public Class BarcodeScanService
 
         Return False
     End Function
-
     Private Function IsDuplicate(value As String) As Boolean
         If Not String.Equals(value, _lastScan, StringComparison.Ordinal) Then
             Return False
@@ -203,16 +197,16 @@ Public Class BarcodeScanService
         Dim ageMs As Double = (DateTime.UtcNow - _lastScanUtc).TotalMilliseconds
         Return ageMs <= DuplicateSuppressMs
     End Function
-
     Public Sub ResetBuffer()
+        _idleTimer.Stop()
         _buffer.Clear()
         _lastCharUtc = DateTime.MinValue
         _ignoreLeadingLf = False
 
         RaiseEvent Trace("Barcode input buffer reset.")
     End Sub
-
     Public Sub ResetAll()
+        _idleTimer.Stop()
         _buffer.Clear()
         _lastCharUtc = DateTime.MinValue
         _lastScan = String.Empty
@@ -220,6 +214,21 @@ Public Class BarcodeScanService
         _ignoreLeadingLf = False
 
         RaiseEvent Trace("Barcode scanner state fully reset.")
+    End Sub
+    Private Sub RestartIdleTimer()
+        _idleTimer.Stop()
+        _idleTimer.Interval = TimeSpan.FromMilliseconds(ScanTimeoutMs)
+        _idleTimer.Start()
+    End Sub
+    Private Sub IdleTimer_Tick(sender As Object, e As EventArgs) Handles _idleTimer.Tick
+        _idleTimer.Stop()
+
+        If Not IsEnabled Then Return
+
+        If _buffer.Length > 0 Then
+            RaiseEvent Trace($"Idle timeout after {ScanTimeoutMs} ms. Finalizing scan '{_buffer}'.")
+            FinalizeScan("IdleTimeout")
+        End If
     End Sub
 
 End Class

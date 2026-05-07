@@ -34,20 +34,6 @@ Namespace SmartLockerKiosk
             Me.MainWindow = w
             w.Show()
 
-            'Debug code
-            AddHandler Application.Current.DispatcherUnhandledException,
-    Sub(sender, dispatchArgs)
-        TraceLogger.LogExceptionDeep("DISPATCHER_UNHANDLED", dispatchArgs.Exception)
-
-        MessageBox.Show("Dispatcher Exception: " & dispatchArgs.Exception.ToString())
-
-        ' Prevent crash
-        dispatchArgs.Handled = True
-    End Sub
-            'end debug code
-
-
-
         End Sub
 
         ' -------------------------
@@ -57,13 +43,11 @@ Namespace SmartLockerKiosk
             Commissioning
             Operational
         End Enum
-
         Private NotInheritable Class StartupDecision
             Public Property Mode As StartupMode
             Public Property DbPath As String
             Public Property IsCommissioned As Boolean
         End Class
-
         Private Function DetermineStartupMode(correlationId As String) As StartupDecision
             Dim decision As New StartupDecision With {
         .Mode = StartupMode.Commissioning,
@@ -114,7 +98,6 @@ Namespace SmartLockerKiosk
 
             Return decision
         End Function
-
         Private Function CreateStartupWindow(decision As StartupDecision) As Window
             If decision Is Nothing Then Throw New ArgumentNullException(NameOf(decision))
 
@@ -178,7 +161,7 @@ Namespace SmartLockerKiosk
             ' =========================
             ' Configure runtime settings
             ' =========================
-            AppSettings.BaseApiUrl = "https://smartlockerapp.azurewebsites.net"
+            AppSettings.BaseApiUrl = "https://smartlocker-ap-prod-b3h2gqb9fwfufmdy.eastus-01.azurewebsites.net"
             AppSettings.DeviceApiKey = "dev-kiosk-key-123"
             AppSettings.SelectedStyle = "RYDER"
             AppSettings.KioskID = "RYDER-KIOSK-01"

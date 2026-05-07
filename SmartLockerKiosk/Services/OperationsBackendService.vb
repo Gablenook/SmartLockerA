@@ -16,8 +16,8 @@ Namespace SmartLockerKiosk
 
         Private ReadOnly _http As HttpClient
         Private ReadOnly _jsonOpts As JsonSerializerOptions
-
-        Private Const AssignLockerPath As String = "v1/workorders/assign-locker"
+        Public Const AssetValidate As String = "/api/assets/validate"
+        Private Const AssignLockerPath As String = "/workorders/assign-locker"
 
         Public Sub New(http As HttpClient)
             If http Is Nothing Then Throw New ArgumentNullException(NameOf(http))
@@ -37,12 +37,6 @@ Namespace SmartLockerKiosk
 ) As Task(Of AuthResult) Implements IOperationsBackendService.AuthorizeAsync
 
             Try
-                MessageBox.Show("INSIDE EDITED OperationsBackendService.AuthorizeAsync")
-
-                TraceLogger.Log("AUTHORIZE ENTER Backend=" & Me.GetType().FullName)
-                TraceLogger.Log("AUTHORIZE TestModeEnabled=" & AppSettings.TestModeEnabled.ToString())
-                TraceLogger.Log("TESTMODE=" & AppSettings.TestModeEnabled.ToString())
-
                 Dim value As String = If(credential, "").Trim()
 
                 If value.Length = 0 Then
@@ -66,41 +60,25 @@ Namespace SmartLockerKiosk
                     Dim backendPurpose = MapPurposeForBackend(AuthPurpose.ValidateIdentity)
 
                     Dim req As New AuthorizeRequest With {
-                .credentialkey = value,
-                .badgeId = value,
-                .kioskId = AppSettings.KioskID,
-                .siteCode = AppSettings.SiteCode,
-                .clientCode = AppSettings.ClientCode,
-                .locationId = AppSettings.LocationId,
-                .credentialType = credentialType,
-                .purpose = backendPurpose,
-                .timestampUtc = DateTime.UtcNow,
-                .requestId = requestId
-            }
+    .credential = value,
+    .kioskId = AppSettings.KioskID,
+    .siteCode = AppSettings.SiteCode,
+    .clientCode = AppSettings.ClientCode
+}
 
                     Dim json = JsonSerializer.Serialize(req, _jsonOpts)
 
-                    TraceLogger.Log("AUTH REQUEST " & requestId & " URL=" & ApiRoutes.AuthAuthorize)
-                    TraceLogger.Log("AUTH REQUEST BODY=" & json)
+                    TraceLogger.Log("AUTH REQUEST URL=" & AppSettings.BaseApiUrl & ApiRoutes.AuthAuthorize)
+                    TraceLogger.Log("AUTH REQUEST JSON=" & json)
 
                     Using msg = CreateJsonRequest(HttpMethod.Post, ApiRoutes.AuthAuthorize, requestId, json)
                         Using resp = Await _http.SendAsync(msg, ct)
 
                             Dim body As String = Await resp.Content.ReadAsStringAsync()
 
-                            'Debug code
-                            TraceLogger.Log("========== BACKEND AUTH TRACE ==========")
-                            TraceLogger.Log("RequestId=" & requestId)
-                            TraceLogger.Log("URL=" & ApiRoutes.AuthAuthorize)
-                            TraceLogger.Log("HTTP=" & CInt(resp.StatusCode).ToString())
-                            TraceLogger.Log("IsSuccess=" & resp.IsSuccessStatusCode.ToString())
-                            TraceLogger.Log("REQUEST JSON=" & json)
-                            TraceLogger.Log("RESPONSE BODY=" & body)
-                            TraceLogger.Log("========== END BACKEND AUTH TRACE ==========")
-                            'End debug code
-
-                            TraceLogger.Log("AUTH RESPONSE " & requestId & " HTTP=" & CInt(resp.StatusCode).ToString())
+                            TraceLogger.Log("AUTH RESPONSE HTTP=" & CInt(resp.StatusCode).ToString())
                             TraceLogger.Log("AUTH RESPONSE BODY=" & body)
+
 
                             Try
                                 Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
@@ -226,26 +204,26 @@ Namespace SmartLockerKiosk
         .WriteIndented = True
     })
 
-            Using msg = CreateJsonRequest(HttpMethod.Post, "/asset/validate", requestId, json)
+            'Debug code
+            TraceLogger.Log("ASSET VALIDATE URL=/asset/validate")
+            TraceLogger.Log("ASSET VALIDATE REQUEST JSON:")
+            TraceLogger.Log(json)
+            'End debug code
+
+
+
+            Using msg = CreateJsonRequest(HttpMethod.Post, ApiRoutes.AssetValidate, requestId, json)
                 Using resp = Await _http.SendAsync(msg, ct)
 
                     Dim body = Await resp.Content.ReadAsStringAsync()
 
-                    MessageBox.Show(
-                "URL: " & AppSettings.BaseApiUrl &
-                Environment.NewLine &
-                "Route: /asset/validate" &
-                Environment.NewLine & Environment.NewLine &
-                "----- REQUEST -----" &
-                Environment.NewLine &
-                json &
-                Environment.NewLine & Environment.NewLine &
-                "HTTP " & CInt(resp.StatusCode).ToString() & " " & resp.ReasonPhrase &
-                Environment.NewLine & Environment.NewLine &
-                "----- RESPONSE -----" &
-                Environment.NewLine &
-                body,
-                "Asset Validation Debug")
+                    'Debug code
+                    TraceLogger.Log($"ASSET VALIDATE RESPONSE STATUS={(CInt(resp.StatusCode))} {resp.ReasonPhrase}")
+                    TraceLogger.Log("ASSET VALIDATE RESPONSE BODY:")
+                    TraceLogger.Log(body)
+
+                    'End Debug code
+
 
                     If Not resp.IsSuccessStatusCode Then
                         Return New AssetValidateResponse With {
@@ -523,10 +501,10 @@ Namespace SmartLockerKiosk
 
         End Function
         Public Async Function AckLockerActionAsync(
-            dto As LockerAckRequestDto,
-            bearerToken As String,
-            ct As CancellationToken
-        ) As Task Implements IOperationsBackendService.AckLockerActionAsync
+    dto As LockerAckRequestDto,
+    bearerToken As String,
+    ct As CancellationToken
+) As Task Implements IOperationsBackendService.AckLockerActionAsync
 
             If dto Is Nothing Then Throw New ArgumentNullException(NameOf(dto))
             If String.IsNullOrWhiteSpace(dto.transactionId) Then Throw New ArgumentException("transactionId is required.")
@@ -534,7 +512,10 @@ Namespace SmartLockerKiosk
             If String.IsNullOrWhiteSpace(dto.correlationId) Then Throw New ArgumentException("correlationId is required.")
             If String.IsNullOrWhiteSpace(dto.ackStatus) Then Throw New ArgumentException("ackStatus is required.")
 
-            If AppSettings.TestModeEnabled Then Return
+            If AppSettings.TestModeEnabled Then
+                TraceLogger.Log("LOCKER ACK SKIPPED - TestModeEnabled=True")
+                Return
+            End If
 
             AppSettings.RequireBackendConfig()
 
@@ -547,11 +528,22 @@ Namespace SmartLockerKiosk
             End If
 
             Dim requestId = Guid.NewGuid().ToString("N")
-            Dim json = JsonSerializer.Serialize(dto, _jsonOpts)
+            Dim json = JsonSerializer.Serialize(dto, New JsonSerializerOptions With {
+        .WriteIndented = True
+    })
+
+            TraceLogger.Log("LOCKER ACK URL=" & AppSettings.BaseApiUrl.TrimEnd("/"c) & "/" & ApiRoutes.LockerAck.TrimStart("/"c))
+            TraceLogger.Log("LOCKER ACK REQUEST JSON:")
+            TraceLogger.Log(json)
 
             Using msg = CreateJsonRequest(HttpMethod.Post, ApiRoutes.LockerAck, requestId, json, bearerToken)
                 Using resp = Await _http.SendAsync(msg, ct)
+
                     Dim body = Await resp.Content.ReadAsStringAsync()
+
+                    TraceLogger.Log($"LOCKER ACK RESPONSE STATUS={CInt(resp.StatusCode)} {resp.ReasonPhrase}")
+                    TraceLogger.Log("LOCKER ACK RESPONSE BODY:")
+                    TraceLogger.Log(If(String.IsNullOrWhiteSpace(body), "<empty>", body))
 
                     If resp.IsSuccessStatusCode Then Return
 
@@ -562,6 +554,7 @@ Namespace SmartLockerKiosk
                     End If
 
                     Throw New InvalidOperationException($"ACK failed ({CInt(resp.StatusCode)}): {Truncate(body, 300)}")
+
                 End Using
             End Using
 

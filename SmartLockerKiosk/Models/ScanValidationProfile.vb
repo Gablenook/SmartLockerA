@@ -7,4 +7,6 @@
     Public Property MaxLength As Integer?
     Public Property AllowedCharactersPattern As String
     Public Property RejectMessage As String
+    Public Property RejectPattern As String
+    Public Property RejectPatternMessage As String
 End Class

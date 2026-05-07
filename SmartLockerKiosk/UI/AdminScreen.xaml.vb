@@ -9,6 +9,7 @@ Namespace SmartLockerKiosk
 
         ' Set this when you open AdminScreen (e.g., "Admin:Kevin" or "Admin:Badge123")
         Public Property ActorId As String = "Admin:Unknown"
+        Public Property LockerController As LockerControllerService
 
         ' One correlation id for this admin session (open -> close)
         Private ReadOnly _sessionCorrelationId As String = Guid.NewGuid().ToString("N")
@@ -69,14 +70,15 @@ Namespace SmartLockerKiosk
             'w.ShowDialog()
         End Sub
         Private Sub LockerStatus_Click(sender As Object, e As RoutedEventArgs)
-            Dim w As New LockerStatusAdmin With {.Owner = Me}
+
+            Dim w As New LockerStatusAdmin With {
+    .Owner = Me,
+    .ActorId = Me.ActorId,
+    .LockerController = Me.LockerController
+}
+
             w.ShowDialog()
-        End Sub
-        Private Sub LockerSizes_Click(sender As Object, e As RoutedEventArgs)
-            Dim w As New LockerSizeSetupWindow() With {
-        .Owner = Me
-    }
-            w.ShowDialog()
+
         End Sub
         Private Sub ControllerSetup_Click(sender As Object, e As RoutedEventArgs)
             Dim actionId = Guid.NewGuid().ToString("N")
@@ -163,6 +165,15 @@ Namespace SmartLockerKiosk
                 })
                 Throw
             End Try
+        End Sub
+        Private Sub LockerSizes_Click(sender As Object, e As RoutedEventArgs)
+
+            Dim w As New LockerSizeSetupWindow() With {
+        .Owner = Me
+    }
+
+            w.ShowDialog()
+
         End Sub
         Protected Overrides Sub OnClosed(e As EventArgs)
             MyBase.OnClosed(e)

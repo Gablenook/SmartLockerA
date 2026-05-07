@@ -78,6 +78,7 @@ Public Class LockerStatusRow
         RaiseEvent PropertyChanged(Me, New PropertyChangedEventArgs(name))
     End Sub
 
+
     'Asset related properties
     Private _currentDeviceType As String
     Public Property CurrentDeviceType As String
@@ -87,7 +88,6 @@ Public Class LockerStatusRow
         Set(value As String)
             If _currentDeviceType <> value Then
                 _currentDeviceType = value
-                IsDirty = True
                 OnPropertyChanged()
             End If
         End Set
@@ -101,7 +101,6 @@ Public Class LockerStatusRow
         Set(value As String)
             If _currentAssetTag <> value Then
                 _currentAssetTag = value
-                IsDirty = True
                 OnPropertyChanged()
             End If
         End Set
@@ -115,7 +114,6 @@ Public Class LockerStatusRow
         Set(value As Boolean)
             If _isDefectiveHold <> value Then
                 _isDefectiveHold = value
-                IsDirty = True
                 OnPropertyChanged()
             End If
         End Set
@@ -129,12 +127,10 @@ Public Class LockerStatusRow
         Set(value As String)
             If _defectType <> value Then
                 _defectType = value
-                IsDirty = True
                 OnPropertyChanged()
             End If
         End Set
     End Property
-
 
 End Class
 

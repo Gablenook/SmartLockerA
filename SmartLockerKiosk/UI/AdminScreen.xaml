@@ -7,41 +7,45 @@
         WindowStyle="SingleBorderWindow"
         ResizeMode="CanResize"
         Topmost="False"
-        Width="900"
-        Height="1100"
+        Width="800"
+        Height="1200"
         Background="#00205B">
 
     <Window.Resources>
 
-        <!-- Big kiosk-style buttons -->
         <Style x:Key="PrimaryAdminButton" TargetType="Button">
-            <Setter Property="FontSize" Value="26"/>
-            <Setter Property="Height" Value="70"/>
-            <Setter Property="Margin" Value="0,0,0,14"/>
-            <Setter Property="Padding" Value="18,0"/>
+            <Setter Property="FontSize" Value="24"/>
+            <Setter Property="Height" Value="62"/>
+            <Setter Property="Margin" Value="0,0,0,12"/>
+            <Setter Property="Padding" Value="14,0"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
         </Style>
 
-        <!-- Footer buttons -->
-        <Style x:Key="FooterAdminButton" TargetType="Button" BasedOn="{StaticResource PrimaryAdminButton}">
-            <Setter Property="Height" Value="78"/>
-            <Setter Property="Width" Value="520"/>
+        <Style x:Key="FooterAdminButton"
+               TargetType="Button"
+               BasedOn="{StaticResource PrimaryAdminButton}">
+            <Setter Property="Height" Value="68"/>
+            <Setter Property="Width" Value="440"/>
             <Setter Property="HorizontalAlignment" Value="Center"/>
         </Style>
 
         <DropShadowEffect x:Key="PanelShadow"
                           Color="#F0F4F8"
-                          BlurRadius="40"
+                          BlurRadius="30"
                           ShadowDepth="2"
-                          Opacity=".35"/>
+                          Opacity=".30"/>
     </Window.Resources>
 
-    <Grid x:Name="RootGrid">
+    <Grid x:Name="RootGrid"
+          Background="#00205B">
 
-        <!-- Scale the whole admin UI to the screen, like the kiosk -->
-       
-            <!-- Design surface -->
-            <Grid Width="800" Height="1200" Background="#00205B" Margin="20">
+        <Viewbox Stretch="Uniform">
+
+            <Grid Width="800"
+                  Height="1200"
+                  Background="#00205B"
+                  Margin="0">
 
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
@@ -54,8 +58,9 @@
                         CornerRadius="18"
                         Background="#30FFFFFF"
                         Padding="18"
-                        Margin="0,0,0,18"
+                        Margin="24,24,24,18"
                         Effect="{StaticResource PanelShadow}">
+
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
@@ -63,15 +68,15 @@
                         </Grid.ColumnDefinitions>
 
                         <TextBlock Text="Admin Panel"
-                                   FontSize="42"
+                                   FontSize="40"
                                    FontWeight="Bold"
                                    Foreground="White"
                                    VerticalAlignment="Center"/>
 
-                        <!-- Close X (ties to your existing Exit Admin handler) -->
                         <Button Grid.Column="1"
                                 Content="X"
-                                Width="70" Height="60"
+                                Width="70"
+                                Height="60"
                                 FontSize="24"
                                 FontWeight="Bold"
                                 Background="#CCFF3B30"
@@ -81,142 +86,147 @@
                     </Grid>
                 </Border>
 
-                <!-- Main content -->
-                <Grid Grid.Row="1">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
-                    </Grid.RowDefinitions>
+                <!-- Main Content -->
+                <ScrollViewer Grid.Row="1"
+                              VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled"
+                              Margin="24,0,24,18">
 
-                    <!-- Configuration -->
-                    <Border Grid.Row="0"
-                            CornerRadius="18"
-                            Background="#20FFFFFF"
-                            Padding="18"
-                            Margin="0,0,0,18"
-                            Effect="{StaticResource PanelShadow}">
-                        <StackPanel>
+                    <StackPanel>
 
-                            <TextBlock Text="Configuration"
-                                       FontSize="30"
-                                       FontWeight="Bold"
-                                       Foreground="White"
-                                       Margin="0,0,0,14"/>
+                        <!-- Configuration -->
+                        <Border CornerRadius="18"
+                                Background="#20FFFFFF"
+                                Padding="18"
+                                Margin="0,0,0,18"
+                                Effect="{StaticResource PanelShadow}">
 
-                            <Grid>
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="Auto"/>
-                                </Grid.RowDefinitions>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="260"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
+                            <StackPanel>
 
-                                <TextBlock Grid.Row="0" Grid.Column="0"
-                                           Text="Passcode Length:"
+                                <TextBlock Text="Configuration"
+                                           FontSize="30"
+                                           FontWeight="Bold"
                                            Foreground="White"
-                                           FontSize="22"
-                                           VerticalAlignment="Center"
-                                           Margin="0,0,14,14"/>
+                                           Margin="0,0,0,14"/>
 
-                                <ComboBox x:Name="PasscodeLengthComboBox"
-                                          Grid.Row="0" Grid.Column="1"
-                                          FontSize="22"
-                                          Height="52"
-                                          Margin="0,0,0,14"
-                                          SelectedIndex="0">
-                                    <ComboBoxItem Content="4"/>
-                                    <ComboBoxItem Content="5"/>
-                                    <ComboBoxItem Content="6"/>
-                                    <ComboBoxItem Content="7"/>
-                                    <ComboBoxItem Content="8"/>
-                                    <ComboBoxItem Content="9"/>
-                                    <ComboBoxItem Content="10"/>
-                                </ComboBox>
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
 
-                                <TextBlock Grid.Row="1" Grid.Column="0"
-                                           Text="Workflow:"
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="230"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <TextBlock Grid.Row="0"
+                                               Grid.Column="0"
+                                               Text="Passcode Length:"
+                                               Foreground="White"
+                                               FontSize="22"
+                                               VerticalAlignment="Center"
+                                               Margin="0,0,14,14"/>
+
+                                    <ComboBox x:Name="PasscodeLengthComboBox"
+                                              Grid.Row="0"
+                                              Grid.Column="1"
+                                              FontSize="22"
+                                              Height="52"
+                                              Margin="0,0,0,14"
+                                              SelectedIndex="0">
+                                        <ComboBoxItem Content="4"/>
+                                        <ComboBoxItem Content="5"/>
+                                        <ComboBoxItem Content="6"/>
+                                        <ComboBoxItem Content="7"/>
+                                        <ComboBoxItem Content="8"/>
+                                        <ComboBoxItem Content="9"/>
+                                        <ComboBoxItem Content="10"/>
+                                    </ComboBox>
+
+                                    <TextBlock Grid.Row="1"
+                                               Grid.Column="0"
+                                               Text="Workflow:"
+                                               Foreground="White"
+                                               FontSize="22"
+                                               VerticalAlignment="Center"
+                                               Margin="0,0,14,14"/>
+
+                                    <ComboBox x:Name="WorkflowComboBox"
+                                              Grid.Row="1"
+                                              Grid.Column="1"
+                                              FontSize="22"
+                                              Height="52"
+                                              Margin="0,0,0,14">
+                                        <ComboBoxItem Content="Pickup and Delivery"/>
+                                        <ComboBoxItem Content="Asset Management"/>
+                                        <ComboBoxItem Content="Day Use"/>
+                                    </ComboBox>
+
+                                    <TextBlock Grid.Row="2"
+                                               Grid.Column="0"
+                                               Text="Style:"
+                                               Foreground="White"
+                                               FontSize="22"
+                                               VerticalAlignment="Center"
+                                               Margin="0,0,14,0"/>
+
+                                    <ComboBox x:Name="StyleComboBox"
+                                              Grid.Row="2"
+                                              Grid.Column="1"
+                                              FontSize="22"
+                                              Height="52">
+                                        <ComboBoxItem Content="TSA-Uniforms"/>
+                                        <ComboBoxItem Content="TSA-Equipment"/>
+                                        <ComboBoxItem Content="SmartLocker-Std"/>
+                                    </ComboBox>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Actions -->
+                        <Border CornerRadius="18"
+                                Background="#20FFFFFF"
+                                Padding="18"
+                                Effect="{StaticResource PanelShadow}">
+
+                            <StackPanel>
+
+                                <TextBlock Text="Actions"
+                                           FontSize="30"
+                                           FontWeight="Bold"
                                            Foreground="White"
-                                           FontSize="22"
-                                           VerticalAlignment="Center"
-                                           Margin="0,0,14,14"/>
+                                           Margin="0,0,0,14"/>
 
-                                <ComboBox x:Name="WorkflowComboBox"
-                                          Grid.Row="1" Grid.Column="1"
-                                          FontSize="22"
-                                          Height="52"
-                                          Margin="0,0,0,14">
-                                    <ComboBoxItem Content="Pickup and Delivery"/>
-                                    <ComboBoxItem Content="Asset Management"/>
-                                    <ComboBoxItem Content="Day Use"/>
-                                </ComboBox>
+                                <Button Content="Locker Setup"
+                                        Style="{StaticResource PrimaryAdminButton}"
+                                        Click="LockerSetup_Click"/>
 
-                                <TextBlock Grid.Row="2" Grid.Column="0"
-                                           Text="Style:"
-                                           Foreground="White"
-                                           FontSize="22"
-                                           VerticalAlignment="Center"
-                                           Margin="0,0,14,0"/>
+                                <Button Content="Locker Status"
+                                        Style="{StaticResource PrimaryAdminButton}"
+                                        Click="LockerStatus_Click"/>
 
-                                <ComboBox x:Name="StyleComboBox"
-                                          Grid.Row="2" Grid.Column="1"
-                                          FontSize="22"
-                                          Height="52">
-                                    <ComboBoxItem Content="TSA-Uniforms"/>
-                                    <ComboBoxItem Content="TSA-Equipment"/>
-                                    <ComboBoxItem Content="SmartLocker-Std"/>
-                                </ComboBox>
-                            </Grid>
+                                <Button Content="Controller Setup"
+                                        Style="{StaticResource PrimaryAdminButton}"
+                                        Click="ControllerSetup_Click"/>
 
-                        </StackPanel>
-                    </Border>
-
-                    <!-- Actions -->
-                    <Border Grid.Row="1"
-                            CornerRadius="18"
-                            Background="#20FFFFFF"
-                            Padding="18"
-                            Margin="0,0,0,18"
-                            Effect="{StaticResource PanelShadow}">
-                        <StackPanel>
-                            <TextBlock Text="Actions"
-                                       FontSize="30"
-                                       FontWeight="Bold"
-                                       Foreground="White"
-                                       Margin="0,0,0,14"/>
-
-                            <Button Content="Locker Setup"
-                                    Style="{StaticResource PrimaryAdminButton}"
-                                    Click="LockerSetup_Click"/>
-
-                            <!-- NEW: Locker Status Admin -->
-                            <Button Content="Locker Status"
-                                    Style="{StaticResource PrimaryAdminButton}"
-                                    Click="LockerStatus_Click"/>
-
-                            <Button Content="Controller Setup"
-                                    Style="{StaticResource PrimaryAdminButton}"
-                                    Click="ControllerSetup_Click"/>
-                    
-                            <Button Content="Locker Sizes"
-                                Style="{StaticResource PrimaryAdminButton}"
-                                Click="LockerSizes_Click"/>
-                        </StackPanel>
-                    </Border>
-
-                    <!-- Spacer (keeps footer from crowding on short screens) -->
-                    <Border Grid.Row="2" Background="Transparent"/>
-                </Grid>
+                                <Button Content="Locker Sizes"
+                                        Style="{StaticResource PrimaryAdminButton}"
+                                        Click="LockerSizes_Click"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
 
                 <!-- Footer -->
                 <Border Grid.Row="2"
                         CornerRadius="18"
                         Background="#30FFFFFF"
                         Padding="18"
+                        Margin="24,0,24,24"
                         Effect="{StaticResource PanelShadow}">
+
                     <StackPanel HorizontalAlignment="Center">
 
                         <Button Content="Exit Admin"
@@ -231,9 +241,8 @@
                                 Click="ExitApp_Click"/>
                     </StackPanel>
                 </Border>
-
             </Grid>
-        
+        </Viewbox>
     </Grid>
 </Window>
 

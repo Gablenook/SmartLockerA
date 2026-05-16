@@ -1,0 +1,99 @@
+﻿{
+  "DefaultWorkflowKey": "asset-checkout",
+  "HomePickupWorkflowKey": "asset-checkout",
+  "HomeDeliveryWorkflowKey": "asset-deposit",
+
+  "EnabledWorkflows": [
+    {
+      "WorkflowKey": "asset-checkout",
+      "DisplayName": "Check Out Device",
+      "Mode": "asset_workflow",
+      "WorkflowAction": "pickup",
+
+      "Options": {
+        "ReferenceLabel": "Device Type"
+      },
+
+      "Steps": [
+        {
+          "StepKey": "credential_scan",
+          "Prompt": "Scan Ryder Credential",
+          "InputType": "scan_or_keypad",
+          "ValidationProfileKey": "credential_default",
+          "NextStepKey": "device_checkout"
+        },
+        {
+          "StepKey": "device_checkout",
+          "Prompt": "Retrieving device.",
+          "InputType": "ui_only",
+          "ValidationProfileKey": null,
+          "NextStepKey": null
+        }
+      ]
+    },
+
+    {
+      "WorkflowKey": "asset-deposit",
+      "DisplayName": "Return Device",
+      "Mode": "asset_workflow",
+      "WorkflowAction": "stage",
+
+      "Options": {
+        "ReferenceLabel": "Asset Tag",
+        "EnableDefectFlow": "true"
+      },
+
+      "Steps": [
+        {
+          "StepKey": "credential_scan",
+          "Prompt": "Scan Ryder Credential",
+          "InputType": "scan_or_keypad",
+          "ValidationProfileKey": "credential_default",
+          "NextStepKey": "asset_scan"
+        },
+        {
+          "StepKey": "asset_scan",
+          "Prompt": "Scan Asset Tag",
+          "InputType": "scan_only",
+          "ValidationProfileKey": "asset_default",
+          "NextStepKey": "defect_decision"
+        },
+        {
+          "StepKey": "defect_decision",
+          "Prompt": "Is this device defective?",
+          "InputType": "ui_only",
+          "ValidationProfileKey": null,
+          "NextStepKey": "compartment_assignment"
+        },
+        {
+          "StepKey": "compartment_assignment",
+          "Prompt": "Finding available compartment.",
+          "InputType": "ui_only",
+          "ValidationProfileKey": null,
+          "NextStepKey": null
+        }
+      ]
+    }
+  ],
+
+  "ScanValidationProfiles": [
+    {
+      "ProfileKey": "credential_default",
+      "AllowKeyboardEntry": true,
+      "MinLength": 1,
+      "MaxLength": 100,
+      "RejectMessage": "Credential is not valid."
+    },
+
+    {
+      "ProfileKey": "asset_default",
+      "AllowKeyboardEntry": false,
+      "RequirePrefix": "S",
+      "StripPrefix": false,
+      "MinLength": 3,
+      "MaxLength": 100,
+      "AllowedCharactersPattern": "^[A-Za-z0-9\\-_]+$",
+      "RejectMessage": "Scan serial number (S/N), not MAC label."
+    }
+  ]
+}

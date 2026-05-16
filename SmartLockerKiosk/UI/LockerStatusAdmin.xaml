@@ -5,146 +5,192 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:SmartLockerKiosk"
         mc:Ignorable="d"
-        Title="Locker Status Admin" Height="900" Width="1600"
+        Title="Locker Status Admin"
+        Width="800"
+        Height="1200"
         WindowState="Normal"
         WindowStartupLocation="CenterOwner"
         KeyDown="Window_KeyDown">
 
     <Window.Resources>
-
         <Style x:Key="AdminButtonCompact" TargetType="Button">
-            <Setter Property="FontSize" Value="16"/>
-            <Setter Property="Height" Value="42"/>
+            <Setter Property="FontSize" Value="15"/>
+            <Setter Property="Height" Value="46"/>
+            <Setter Property="MinWidth" Value="120"/>
             <Setter Property="Padding" Value="10,4"/>
-            <Setter Property="Margin" Value="6,0,0,0"/>
+            <Setter Property="Margin" Value="6"/>
         </Style>
-
     </Window.Resources>
 
-    <Grid Margin="12">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
-        </Grid.RowDefinitions>
+    <Grid Background="#00205B">
+        <Viewbox Stretch="Uniform">
 
-        
-        <!-- Top bar -->
-        <DockPanel Grid.Row="0" LastChildFill="False" Margin="0,0,0,8">
-            <TextBlock DockPanel.Dock="Left"
-                       Text="Edit locker status. Change fields, then click Save."
-                       FontSize="14"
-                       VerticalAlignment="Center"/>
-            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-                <Button x:Name="ScanPortsButton" Style="{StaticResource AdminButtonCompact}" Content="Scan Ports" Width="120" Margin="8,0,0,0"
-            Click="ScanPorts_Click"/>
-                <Button x:Name="ReloadButton" Style="{StaticResource AdminButtonCompact}" Content="Reload" Width="100" Margin="8,0,0,0"
-                        Click="Reload_Click"/>
-                <Button x:Name="ResetLockerButton" Style="{StaticResource AdminButtonCompact}"
-                            Content="Reset Locker"
-                            Width="140"
-                            Margin="8,0,0,0"
-                            Click="ResetLocker_Click"/>
-                <Button x:Name="MarkDefectiveButton"
-                            Content="Mark Defective"
-                            Width="145"
-                            Style="{StaticResource AdminButtonCompact}"
-                            Click="MarkDefective_Click"/>
-                <Button x:Name="ClearDefectiveButton"
-                            Content="Clear Defective"
-                            Width="140"
-                            Style="{StaticResource AdminButtonCompact}"
-                            Click="ClearDefective_Click"/>
-                <Button x:Name="OpenLockerButton" Style="{StaticResource AdminButtonCompact}"
-                            Content="Open Locker"
-                            Width="130"
-                            Margin="8,0,0,0"
-                            Click="OpenLocker_Click"/>
-                <Button x:Name="SaveButton" Style="{StaticResource AdminButtonCompact}" Content="Save" Width="100" Margin="8,0,0,0"
-                        Click="Save_Click"/>
-                <Button x:Name="CloseButton" Style="{StaticResource AdminButtonCompact}" Content="Close" Width="100" Margin="8,0,0,0"
-                        Click="Close_Click"/>
-            </StackPanel>
-        </DockPanel>
+            <Grid Width="800"
+                  Height="1200"
+                  Margin="0"
+                  Background="#00205B">
 
-        <!-- DataGrid -->
-        <DataGrid x:Name="GridStatus"
-                  Grid.Row="1"
-                  AutoGenerateColumns="False"
-                  CanUserAddRows="False"
-                  CanUserDeleteRows="False"
-                  IsReadOnly="False"
-                  SelectionMode="Extended"
-                  SelectionUnit="FullRow"
-                  HeadersVisibility="Column"
-                  GridLinesVisibility="All">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
 
-            <DataGrid.Columns>
-                <!-- Read-only identity -->
-                <DataGridTextColumn Header="LockerId" Binding="{Binding LockerId}" IsReadOnly="True" Width="80"/>
-                <DataGridTextColumn Header="LockerNumber" Binding="{Binding LockerNumber}" IsReadOnly="True" Width="120"/>
-                <DataGridTextColumn Header="Branch" Binding="{Binding Branch}" IsReadOnly="True" Width="70"/>
-                <DataGridTextColumn Header="RelayId" Binding="{Binding RelayId}" IsReadOnly="True" Width="70"/>
-                <DataGridTextColumn Header="Size" Binding="{Binding SizeCode}" IsReadOnly="True" Width="70"/>
+                <TextBlock Grid.Row="0"
+                           Text="Locker Status Admin"
+                           FontSize="34"
+                           FontWeight="Bold"
+                           Foreground="White"
+                           Margin="20,20,20,10"/>
 
-                <!-- Editable status fields -->
-                <DataGridComboBoxColumn Header="Occupancy"
-                                        SelectedItemBinding="{Binding OccupancyState, UpdateSourceTrigger=PropertyChanged}"
-                                        Width="140"/>
+                <TextBlock Grid.Row="1"
+                           Text="Edit locker status. Select a locker, then use the action buttons."
+                           FontSize="18"
+                           Foreground="White"
+                           TextWrapping="Wrap"
+                           Margin="20,0,20,12"/>
 
-                <DataGridComboBoxColumn Header="Lock"
-                                        SelectedItemBinding="{Binding LockState, UpdateSourceTrigger=PropertyChanged}"
-                                        Width="110"/>
+                <Grid Grid.Row="2"
+                      Margin="20,0,20,12">
 
-                <DataGridCheckBoxColumn Header="Package?"
-                                        Binding="{Binding PackagePresent, UpdateSourceTrigger=PropertyChanged}"
-                                        Width="90"/>
-                <DataGridTextColumn Header="Asset Tag"
-                    Binding="{Binding CurrentAssetTag}"
-                    IsReadOnly="True"
-                    Width="130"/>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
 
-                <DataGridTextColumn Header="Device Type"
-                    Binding="{Binding CurrentDeviceType}"
-                    IsReadOnly="True"
-                    Width="130"/>
+                    <!-- Button area wraps instead of running off screen -->
+                    <WrapPanel Grid.Row="0"
+                               HorizontalAlignment="Center"
+                               Margin="0,0,0,12">
 
-                <DataGridCheckBoxColumn Header="Defective?"
-                        Binding="{Binding IsDefectiveHold}"
-                        IsReadOnly="True"
-                        Width="90"/>
+                        <Button x:Name="ScanPortsButton"
+                                Style="{StaticResource AdminButtonCompact}"
+                                Content="Scan Ports"
+                                Click="ScanPorts_Click"/>
 
+                        <Button x:Name="ReloadButton"
+                                Style="{StaticResource AdminButtonCompact}"
+                                Content="Reload"
+                                Click="Reload_Click"/>
 
+                        <Button x:Name="ResetLockerButton"
+                                Style="{StaticResource AdminButtonCompact}"
+                                Content="Reset Locker"
+                                Click="ResetLocker_Click"/>
 
-                <DataGridTextColumn Header="Reason"
-                                    Binding="{Binding Reason, UpdateSourceTrigger=PropertyChanged}"
-                                    Width="200"/>
+                        <Button x:Name="MarkDefectiveButton"
+                                Style="{StaticResource AdminButtonCompact}"
+                                Content="Mark Defective"
+                                Click="MarkDefective_Click"/>
 
-                <DataGridTextColumn Header="ReservedUntilUtc"
-                                    Binding="{Binding ReservedUntilUtc}"
-                                    IsReadOnly="True"
-                                    Width="160"/>
+                        <Button x:Name="ClearDefectiveButton"
+                                Style="{StaticResource AdminButtonCompact}"
+                                Content="Clear Defective"
+                                Click="ClearDefective_Click"/>
 
-                <DataGridTextColumn Header="Reserved WO"
-                                    Binding="{Binding ReservedWorkOrderNumber}"
-                                    IsReadOnly="True"
-                                    Width="120"/>
+                        <Button x:Name="OpenLockerButton"
+                                Style="{StaticResource AdminButtonCompact}"
+                                Content="Open Locker"
+                                Click="OpenLocker_Click"/>
 
-                <DataGridTextColumn Header="LastUpdatedUtc"
-                                    Binding="{Binding LastUpdatedUtc}"
-                                    IsReadOnly="True"
-                                    Width="160"/>
+                        <Button x:Name="SaveButton"
+                                Style="{StaticResource AdminButtonCompact}"
+                                Content="Save"
+                                Click="Save_Click"/>
 
-                <DataGridTextColumn Header="LastActorId"
-                                    Binding="{Binding LastActorId}"
-                                    IsReadOnly="True"
-                                    Width="140"/>
-            </DataGrid.Columns>
-        </DataGrid>
+                        <Button x:Name="CloseButton"
+                                Style="{StaticResource AdminButtonCompact}"
+                                Content="Close"
+                                Click="Close_Click"/>
+                    </WrapPanel>
 
-        <!-- Status bar -->
-        <Border Grid.Row="2" Margin="0,8,0,0" Padding="8" Background="#FFEFEFEF" CornerRadius="6">
-            <TextBlock x:Name="StatusText" Text="Ready."/>
-        </Border>
+                    <!-- DataGrid scrolls horizontally -->
+                    <DataGrid x:Name="GridStatus"
+                              Grid.Row="1"
+                              AutoGenerateColumns="False"
+                              CanUserAddRows="False"
+                              CanUserDeleteRows="False"
+                              IsReadOnly="False"
+                              SelectionMode="Extended"
+                              SelectionUnit="FullRow"
+                              HeadersVisibility="Column"
+                              GridLinesVisibility="All"
+                              HorizontalScrollBarVisibility="Auto"
+                              VerticalScrollBarVisibility="Auto">
+
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="LockerId" Binding="{Binding LockerId}" IsReadOnly="True" Width="80"/>
+                            <DataGridTextColumn Header="LockerNumber" Binding="{Binding LockerNumber}" IsReadOnly="True" Width="120"/>
+                            <DataGridTextColumn Header="Branch" Binding="{Binding Branch}" IsReadOnly="True" Width="70"/>
+                            <DataGridTextColumn Header="RelayId" Binding="{Binding RelayId}" IsReadOnly="True" Width="70"/>
+                            <DataGridTextColumn Header="Size" Binding="{Binding SizeCode}" IsReadOnly="True" Width="70"/>
+
+                            <DataGridComboBoxColumn Header="Occupancy"
+                                                    SelectedItemBinding="{Binding OccupancyState, UpdateSourceTrigger=PropertyChanged}"
+                                                    Width="140"/>
+
+                            <DataGridComboBoxColumn Header="Lock"
+                                                    SelectedItemBinding="{Binding LockState, UpdateSourceTrigger=PropertyChanged}"
+                                                    Width="110"/>
+
+                            <DataGridCheckBoxColumn Header="Package?"
+                                                    Binding="{Binding PackagePresent, UpdateSourceTrigger=PropertyChanged}"
+                                                    Width="90"/>
+
+                            <DataGridTextColumn Header="Asset Tag"
+                                                Binding="{Binding CurrentAssetTag}"
+                                                IsReadOnly="True"
+                                                Width="130"/>
+
+                            <DataGridTextColumn Header="Device Type"
+                                                Binding="{Binding CurrentDeviceType}"
+                                                IsReadOnly="True"
+                                                Width="130"/>
+
+                            <DataGridCheckBoxColumn Header="Defective?"
+                                                    Binding="{Binding IsDefectiveHold}"
+                                                    IsReadOnly="True"
+                                                    Width="90"/>
+
+                            <DataGridTextColumn Header="Reason"
+                                                Binding="{Binding Reason, UpdateSourceTrigger=PropertyChanged}"
+                                                Width="200"/>
+
+                            <DataGridTextColumn Header="ReservedUntilUtc"
+                                                Binding="{Binding ReservedUntilUtc}"
+                                                IsReadOnly="True"
+                                                Width="160"/>
+
+                            <DataGridTextColumn Header="Reserved WO"
+                                                Binding="{Binding ReservedWorkOrderNumber}"
+                                                IsReadOnly="True"
+                                                Width="120"/>
+
+                            <DataGridTextColumn Header="LastUpdatedUtc"
+                                                Binding="{Binding LastUpdatedUtc}"
+                                                IsReadOnly="True"
+                                                Width="160"/>
+
+                            <DataGridTextColumn Header="LastActorId"
+                                                Binding="{Binding LastActorId}"
+                                                IsReadOnly="True"
+                                                Width="140"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+
+                <Border Grid.Row="3"
+                        Margin="20,0,20,20"
+                        Padding="10"
+                        Background="#FFEFEFEF"
+                        CornerRadius="6">
+
+                    <TextBlock x:Name="StatusText"
+                               Text="Ready."
+                               FontSize="16"/>
+                </Border>
+            </Grid>
+        </Viewbox>
     </Grid>
 </Window>

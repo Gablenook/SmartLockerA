@@ -14,7 +14,6 @@
         Public Shared Property DeviceApiKey As String = ""
         Public Shared Property BaseApiUrl As String = "https://smartlockerapp.azurewebsites.net"
 
-
         ' =========================
         ' Workflow selection
         ' =========================
@@ -48,47 +47,9 @@
             End Set
         End Property
 
-        Public Shared ReadOnly Property HomePickupWorkflowKey As String
-            Get
-
-                Select Case WorkflowFamily.Trim().ToLowerInvariant()
-
-                    Case "asset"
-                        Return "asset-checkout"
-
-                    Case "package"
-                        Return "package-retrieve"
-
-                    Case Else
-                        Throw New InvalidOperationException(
-                    $"Unknown WorkflowFamily '{WorkflowFamily}'"
-                )
-
-                End Select
-
-            End Get
-        End Property
-
-        Public Shared ReadOnly Property HomeDeliveryWorkflowKey As String
-            Get
-
-                Select Case WorkflowFamily.Trim().ToLowerInvariant()
-
-                    Case "asset"
-                        Return "asset-deposit"
-
-                    Case "package"
-                        Return "package-deposit"
-
-                    Case Else
-                        Throw New InvalidOperationException(
-                    $"Unknown WorkflowFamily '{WorkflowFamily}'"
-                )
-
-                End Select
-
-            End Get
-        End Property
+        Public Shared Property HomePickupWorkflowKey As String = ""
+        Public Shared Property HomeDeliveryWorkflowKey As String = ""
+        Public Shared Property WorkflowConfigPath As String = ""
 
 
         ' =========================
@@ -159,7 +120,6 @@
                 Throw New InvalidOperationException("DeviceApiKey is not configured.")
             End If
         End Sub
-
         Public Shared Function HasBackendConfig() As Boolean
             If UseBackendBypass Then Return True
 

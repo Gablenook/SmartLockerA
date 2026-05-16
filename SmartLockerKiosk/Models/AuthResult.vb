@@ -19,4 +19,6 @@
     Public Property SessionToken As String
     Public Property Roles As List(Of String)
     Public Property ActorID As String
+    Public Property AuthorizedDevices As List(Of String)
+    Public Property Permissions As List(Of String)
 End Class

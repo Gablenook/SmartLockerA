@@ -133,6 +133,9 @@ Namespace SmartLockerKiosk
                         .DisplayName = dto.displayName,
                         .Message = If(dto.isAuthorized, "OK", "Credential not recognized"),
                         .SessionToken = dto.sessionToken,
+                        .Roles = If(dto.roles, New List(Of String)()),
+                        .Permissions = If(dto.Permissions, New List(Of String)()),
+                        .AuthorizedDevices = If(dto.authorizedDevices, New List(Of String)()),
                         .WorkOrders = New List(Of WorkOrderAuthItem)()
                     }
 

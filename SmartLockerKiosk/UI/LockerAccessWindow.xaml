@@ -184,6 +184,9 @@
 
                             </StackPanel>
                         </Border>
+              
+
+
                     </Grid>
 
 
@@ -392,6 +395,20 @@
                         </Image>
                     </Border>
                 </Grid>
+
+                <TextBlock x:Name="RevisionTextBlock"
+           Grid.Row="2"
+           Text="Revision 1.0.3"
+           HorizontalAlignment="Left"
+           VerticalAlignment="Bottom"
+           Margin="20,0,0,20"
+           FontSize="20
+                           "
+           FontWeight="Bold"
+           Opacity="1"
+           Foreground="Black"
+           Panel.ZIndex="5000"/>
+
 
             </Grid>
         </Viewbox>

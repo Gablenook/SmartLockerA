@@ -161,16 +161,13 @@ Namespace SmartLockerKiosk
             ' =========================
             ' Configure runtime settings
             ' =========================
-            AppSettings.BaseApiUrl = "https://smartlocker-ap-prod-b3h2gqb9fwfufmdy.eastus-01.azurewebsites.net"
-            AppSettings.DeviceApiKey = "dev-kiosk-key-123"
-            AppSettings.SelectedStyle = "RYDER"
-            AppSettings.KioskID = "RYDER-KIOSK-01"
-            AppSettings.SiteCode = "RYDER-CONYERS-01"
-            AppSettings.LocationId = "RYDER-CONYERS-GA-01"
-            AppSettings.WorkflowFamily = "asset"
-            AppSettings.ClientCode = "RYDER"
-            AppSettings.UseBackendBypass = False
-            AppSettings.TestModeEnabled = False
+            AppSettings.SelectedStyle = "Shaw" ' or future SHAW if you add a Shaw theme
+            AppSettings.KioskID = "SHAW-KIOSK-01"
+            AppSettings.SiteCode = "SHAW-AFB-01"
+            AppSettings.LocationId = "SHAW-AFB-01"
+            AppSettings.WorkflowFamily = "package"
+            AppSettings.ClientCode = "shaw"
+            AppSettings.WorkflowConfigPath = "Configs\shaw-workflow.json"
 
             SafeAudit(New Audit.AuditEvent With {
         .EventType = Audit.AuditEventType.PolicyConfigurationChange,

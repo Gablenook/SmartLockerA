@@ -1,0 +1,35 @@
+﻿<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- Base -->
+    <Color x:Key="BrandBackgroundColor">#FFFFFF</Color>
+    <SolidColorBrush x:Key="BrandBackgroundBrush" Color="{StaticResource BrandBackgroundColor}"/>
+
+    <!-- Primary actions -->
+    <SolidColorBrush x:Key="BrandPrimaryButtonBrush" Color="#B00020"/>
+    <SolidColorBrush x:Key="BrandPrimaryButtonTextBrush" Color="White"/>
+    <SolidColorBrush x:Key="BrandSecondaryButtonBrush" Color="#333333"/>
+
+    <!-- Prompt -->
+    <SolidColorBrush x:Key="BrandPromptBrush" Color="#F7D7DA"/>
+    <SolidColorBrush x:Key="BrandPromptTextBrush" Color="#111111"/>
+
+    <!-- Header accent -->
+    <SolidColorBrush x:Key="BrandHeaderAccentBrush" Color="#C8102E"/>
+
+    <!-- Tile outline -->
+    <SolidColorBrush x:Key="BrandTileOutlineBrush" Color="#BBBBBB"/>
+
+    <!-- Keypad -->
+    <SolidColorBrush x:Key="BrandKeypadButtonBrush" Color="#E6E6E6"/>
+    <SolidColorBrush x:Key="BrandKeypadButtonTextBrush" Color="#111111"/>
+    <SolidColorBrush x:Key="BrandKeypadSpecialBrush" Color="#CCCCCC"/>
+    <SolidColorBrush x:Key="BrandKeypadEnterBrush" Color="#B00020"/>
+    <SolidColorBrush x:Key="BrandKeypadPanelBrush" Color="White"/>
+    <SolidColorBrush x:Key="BrandKeypadEnterTextBrush" Color="White"/>
+
+    <!-- Logo -->
+    <BitmapImage x:Key="BrandLogoImage"
+                 UriSource="pack://application:,,,/SmartLockerKiosk;component/Images/ShawAFBLogo.png"/>
+
+</ResourceDictionary>

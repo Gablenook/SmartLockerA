@@ -1,0 +1,77 @@
+﻿{
+  "DefaultWorkflowKey": "ipe-pickup",
+  "HomePickupWorkflowKey": "ipe-pickup",
+  "HomeDeliveryWorkflowKey": "ipe-stage",
+  "EnabledWorkflows": [
+    {
+      "WorkflowKey": "ipe-pickup",
+      "DisplayName": "Pick Up IPE Gear",
+      "Mode": "package_workflow",
+      "WorkflowAction": "pickup",
+      "Options": {
+        "ReferenceLabel": "Airman DoD Number",
+        "RequiresReferenceAuthorization": "false",
+        "UseSizeSelection": "false"
+      },
+      "Steps": [
+        {
+          "StepKey": "work_order_scan",
+          "Prompt": "Enter Airman DoD Number",
+          "InputType": "scan_or_keypad",
+          "ValidationProfileKey": "dod_number_default",
+          "NextStepKey": null
+        }
+      ]
+    },
+    {
+      "WorkflowKey": "ipe-stage",
+      "DisplayName": "Stage IPE Gear",
+      "Mode": "package_workflow",
+      "WorkflowAction": "stage",
+      "Options": {
+        "ReferenceLabel": "Airman DoD Number",
+        "RequiresReferenceAuthorization": "false",
+        "RequiredCredentialRoles": "supervisor,ipe_personnel",
+        "UseSizeSelection": "false"
+      },
+      "Steps": [
+        {
+          "StepKey": "credential_scan",
+          "Prompt": "Scan IPE Staff Credential",
+          "InputType": "scan_or_keypad",
+          "ValidationProfileKey": "credential_default",
+          "NextStepKey": "work_order_scan"
+        },
+        {
+          "StepKey": "work_order_scan",
+          "Prompt": "Enter Airman DoD Number",
+          "InputType": "scan_or_keypad",
+          "ValidationProfileKey": "dod_number_default",
+          "NextStepKey": "compartment_assignment"
+        },
+        {
+          "StepKey": "compartment_assignment",
+          "Prompt": "Finding available compartment.",
+          "InputType": "ui_only",
+          "ValidationProfileKey": null,
+          "NextStepKey": null
+        }
+      ],
+      "ScanValidationProfiles": [
+        {
+          "ProfileKey": "credential_default",
+          "AllowKeyboardEntry": true,
+          "MinLength": 1,
+          "MaxLength": 100,
+          "RejectMessage": "Credential is not valid."
+        },
+        {
+          "ProfileKey": "dod_number_default",
+          "AllowKeyboardEntry": true,
+          "MinLength": 4,
+          "MaxLength": 20,
+          "AllowedCharactersPattern": "^[0-9]+$",
+          "RejectMessage": "DoD number is not valid."
+        }
+      ]
+    }

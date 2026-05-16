@@ -17,11 +17,27 @@
 	</PropertyGroup>
 
 	<ItemGroup>
+	  <None Remove="Configs\ryder-workflow.json" />
+	  <None Remove="Configs\shaw-workflow.json" />
+	  <None Remove="Configs\tsa-workflow.json" />
 	  <None Remove="Images\Ryder.png" />
+	  <None Remove="Images\ShawAFBLogo.png" />
 	</ItemGroup>
 
 	<ItemGroup>
 	  <ApplicationDefinition Include="App.xaml" />
+	</ItemGroup>
+
+	<ItemGroup>
+	  <Content Include="Configs\ryder-workflow.json">
+	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+	  </Content>
+	  <Content Include="Configs\shaw-workflow.json">
+	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+	  </Content>
+	  <Content Include="Configs\tsa-workflow.json">
+	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+	  </Content>
 	</ItemGroup>
 
 	<ItemGroup>
@@ -50,6 +66,9 @@
 	<ItemGroup>
 		<Resource Include="Images\BrandingLogo.png" />
 		<Resource Include="Images\Ryder.png">
+		  <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+		</Resource>
+		<Resource Include="Images\ShawAFBLogo.png">
 		  <CopyToOutputDirectory>Never</CopyToOutputDirectory>
 		</Resource>
 		<Resource Include="Images\TSALogo.png" />

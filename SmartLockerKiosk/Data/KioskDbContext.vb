@@ -10,18 +10,23 @@ Public Class KioskDbContext
     Public Property KioskState As DbSet(Of KioskState)
     Public Property Lockers As DbSet(Of Locker)
     Public Property LockerStatuses As DbSet(Of LockerStatus)
+    Public Property LockerTransactionJournals As DbSet(Of LockerTransactionJournal)
     Public Property ControllerPorts As DbSet(Of ControllerPort)
     Public Property LockerSizes As DbSet(Of LockerSize)
 
     Protected Overrides Sub OnModelCreating(modelBuilder As ModelBuilder)
+
         MyBase.OnModelCreating(modelBuilder)
-        ConfigureKioskState(modelBuilder) '
+
+        ConfigureKioskState(modelBuilder)
         ConfigureLocker(modelBuilder)
         ConfigureLockerStatus(modelBuilder)
         ConfigureLockerToStatusRelationship(modelBuilder)
         ConfigureControllerPort(modelBuilder)
         ConfigureLockerSize(modelBuilder)
         ConfigureLockerToSizeRelationship(modelBuilder)
+        ConfigureLockerTransactionJournal(modelBuilder)
+
     End Sub
     Private Shared Sub ConfigureKioskState(modelBuilder As ModelBuilder)
         Dim e = modelBuilder.Entity(Of KioskState)()
@@ -224,6 +229,100 @@ Public Class KioskDbContext
         HasForeignKey(Function(l) l.SizeCode).
         HasPrincipalKey(Function(s) s.SizeCode).
         OnDelete(DeleteBehavior.Restrict) ' don't delete sizes if lockers exist
+    End Sub
+    Private Shared Sub ConfigureLockerTransactionJournal(modelBuilder As ModelBuilder)
+
+        modelBuilder.Entity(Of LockerTransactionJournal)(Sub(entity)
+
+                                                             entity.HasKey(Function(x) x.Id)
+
+                                                             entity.HasIndex(Function(x) x.RequestId).
+                                                                 IsUnique()
+
+                                                             entity.HasIndex(Function(x) x.LockerNumber)
+
+                                                             entity.HasIndex(Function(x) New With {
+                                                                 x.AckStatus,
+                                                                 x.TransactionState
+                                                             })
+
+                                                             entity.Property(Function(x) x.RequestId).
+                                                                 HasMaxLength(80).
+                                                                 IsRequired()
+
+                                                             entity.Property(Function(x) x.KioskId).
+                                                                 HasMaxLength(80).
+                                                                 IsRequired()
+
+                                                             entity.Property(Function(x) x.Workflow).
+                                                                 HasMaxLength(80).
+                                                                 IsRequired()
+
+                                                             entity.Property(Function(x) x.ActionType).
+                                                                 HasMaxLength(80).
+                                                                 IsRequired()
+
+                                                             entity.Property(Function(x) x.TransactionId).
+                                                                 HasMaxLength(80)
+
+                                                             entity.Property(Function(x) x.CommandId).
+                                                                 HasMaxLength(80)
+
+                                                             entity.Property(Function(x) x.CorrelationId).
+                                                                 HasMaxLength(80)
+
+                                                             entity.Property(Function(x) x.LockerNumber).
+                                                                 HasMaxLength(30)
+
+                                                             entity.Property(Function(x) x.Branch).
+                                                                 HasMaxLength(1)
+
+                                                             entity.Property(Function(x) x.ActorId).
+                                                                 HasMaxLength(120)
+
+                                                             entity.Property(Function(x) x.Credential).
+                                                                 HasMaxLength(120)
+
+                                                             entity.Property(Function(x) x.AssetTag).
+                                                                 HasMaxLength(120)
+
+                                                             entity.Property(Function(x) x.DeviceType).
+                                                                 HasMaxLength(80)
+
+                                                             entity.Property(Function(x) x.TransactionState).
+    HasConversion(Of Integer)().
+    IsRequired()
+
+                                                             entity.Property(Function(x) x.AckStatus).
+                                                                 HasConversion(Of Integer)().
+                                                                 IsRequired()
+
+                                                             entity.Property(Function(x) x.RetryCount).
+                                                                 IsRequired()
+
+                                                             entity.Property(Function(x) x.CreatedUtc).
+                                                                 IsRequired()
+
+                                                             entity.Property(Function(x) x.UpdatedUtc).
+                                                                 IsRequired()
+
+                                                             entity.Property(Function(x) x.LastAttemptUtc).
+                                                                 IsRequired(False)
+
+                                                             entity.Property(Function(x) x.CompletedUtc).
+                                                                 IsRequired(False)
+
+                                                             entity.Property(Function(x) x.RequestJson).
+                                                                 IsRequired(False)
+
+                                                             entity.Property(Function(x) x.ResponseJson).
+                                                                 IsRequired(False)
+
+                                                             entity.Property(Function(x) x.LastError).
+                                                                 IsRequired(False)
+
+                                                         End Sub)
+
     End Sub
 
 End Class

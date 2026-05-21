@@ -1,0 +1,91 @@
+﻿{
+  "DefaultWorkflowKey": "package-retrieve",
+  "HomePickupWorkflowKey": "package-retrieve",
+  "HomeDeliveryWorkflowKey": "package-deposit",
+
+  "EnabledWorkflows": [
+    {
+      "WorkflowKey": "package-retrieve",
+      "DisplayName": "Retrieve Uniforms",
+      "Mode": "package_workflow",
+      "WorkflowAction": "pickup",
+
+      "Options": {
+        "ReferenceLabel": "Work Order",
+        "RequiresReferenceAuthorization": "true",
+        "UseSizeSelection": "false"
+      },
+
+      "Steps": [
+        {
+          "StepKey": "credential_scan",
+          "Prompt": "Enter Credential",
+          "InputType": "scan_or_keypad",
+          "ValidationProfileKey": "credential_default",
+          "NextStepKey": "work_order_scan"
+        },
+        {
+          "StepKey": "work_order_scan",
+          "Prompt": "Scan Work Order",
+          "InputType": "scan_or_keypad",
+          "ValidationProfileKey": "workorder_default",
+          "NextStepKey": null
+        }
+      ]
+    },
+
+    {
+      "WorkflowKey": "package-deposit",
+      "DisplayName": "Stage Uniforms",
+      "Mode": "package_workflow",
+      "WorkflowAction": "stage",
+
+      "Options": {
+        "ReferenceLabel": "Work Order",
+        "RequiresReferenceAuthorization": "false",
+        "UseSizeSelection": "true"
+      },
+
+      "Steps": [
+        {
+          "StepKey": "credential_scan",
+          "Prompt": "Enter Attendant Credential",
+          "InputType": "scan_or_keypad",
+          "ValidationProfileKey": "credential_default",
+          "NextStepKey": "work_order_scan"
+        },
+        {
+          "StepKey": "work_order_scan",
+          "Prompt": "Scan Work Order",
+          "InputType": "scan_or_keypad",
+          "ValidationProfileKey": "workorder_default",
+          "NextStepKey": "size_selection"
+        },
+        {
+          "StepKey": "size_selection",
+          "Prompt": "Select compartment size.",
+          "InputType": "ui_only",
+          "ValidationProfileKey": null,
+          "NextStepKey": null
+        }
+      ]
+    }
+  ],
+
+  "ScanValidationProfiles": [
+    {
+      "ProfileKey": "credential_default",
+      "AllowKeyboardEntry": true,
+      "MinLength": 1,
+      "MaxLength": 100,
+      "RejectMessage": "Credential is not valid."
+    },
+    {
+      "ProfileKey": "workorder_default",
+      "AllowKeyboardEntry": true,
+      "MinLength": 1,
+      "MaxLength": 100,
+      "RejectMessage": "Work order is not valid."
+    }
+  ]
+}

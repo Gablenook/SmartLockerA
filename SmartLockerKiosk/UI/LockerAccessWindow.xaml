@@ -17,7 +17,7 @@
     <Window.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
-                <ResourceDictionary Source="/Themes/RyderTheme.xaml"/>
+                <ResourceDictionary Source="/Themes/TsaTheme.xaml"/>
             </ResourceDictionary.MergedDictionaries>
 
             <Storyboard x:Key="FadeInPrompt">
@@ -398,7 +398,7 @@
 
                 <TextBlock x:Name="RevisionTextBlock"
            Grid.Row="2"
-           Text="Revision 1.0.3"
+           Text="Revision 1.1.3"
            HorizontalAlignment="Left"
            VerticalAlignment="Bottom"
            Margin="20,0,0,20"

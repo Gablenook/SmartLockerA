@@ -1,0 +1,13 @@
+﻿{
+  "BaseApiUrl": "https://smartlocker-ap-prod-b3h2gqb9fwfufmdy.eastus-01.azurewebsites.net",
+  "DeviceApiKey": "dev-kiosk-key-123",
+  "SelectedStyle": "SHAWAFB",
+  "KioskID": "SHAW-KIOSK-01",
+  "SiteCode": "SHAW-AFB-01",
+  "LocationId": "SHAW-AFB-01",
+  "WorkflowFamily": "package",
+  "ClientCode": "shaw",
+  "WorkflowConfigPath": "Configs\\shaw-workflow.json",
+  "UseBackendBypass": false,
+  "TestModeEnabled": false
+}

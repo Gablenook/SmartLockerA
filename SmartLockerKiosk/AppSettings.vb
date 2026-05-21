@@ -86,8 +86,8 @@
         ' =========================
         ' Test / dev mode
         ' =========================
-        Public Shared Property UseBackendBypass As Boolean = True
-        Public Shared Property TestModeEnabled As Boolean = True
+        Public Shared Property UseBackendBypass As Boolean = False
+        Public Shared Property TestModeEnabled As Boolean = False
 
         Public Shared Property CommissioningUsesTestMode As Boolean = True
         Public Shared Property TestCommissioningCode As String = "123456"

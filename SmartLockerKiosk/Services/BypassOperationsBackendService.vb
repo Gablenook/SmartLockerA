@@ -48,6 +48,10 @@ Public Class BypassOperationsBackendService
                     result.DisplayName = "Bypass Courier"
                     result.SessionToken = "BYPASS-TOKEN-" & Guid.NewGuid().ToString("N")
                     result.Message = "OK (bypass courier)"
+                    result.Roles = New List(Of String) From {
+            "supervisor",
+            "ipe_personnel"
+        }
                 End If
 
             Case AuthPurpose.PickupAccess

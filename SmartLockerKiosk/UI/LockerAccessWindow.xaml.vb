@@ -1,4 +1,5 @@
-﻿Imports System.ComponentModel
+﻿Imports System.Collections.ObjectModel
+Imports System.ComponentModel
 Imports System.Net
 Imports System.Net.Http
 Imports System.Net.Http.Headers
@@ -75,6 +76,8 @@ Namespace SmartLockerKiosk
             InitializeComponent()
             fadeIn = CType(FindResource("FadeInPrompt"), Storyboard)
 
+
+
             ApplyTheme(AppSettings.SelectedStyle)
 
             _lockerController = lockerController
@@ -110,28 +113,14 @@ Namespace SmartLockerKiosk
 
             Next
 
-
-
             IndexWorkflowConfiguration(_workflowConfig)
 
             ConfigureBarcodeValidation()
         End Sub
         Private Sub ApplyTheme(themeName As String)
 
-            Dim merged = Application.Current.Resources.MergedDictionaries
-
-            For i As Integer = merged.Count - 1 To 0 Step -1
-                Dim src = merged(i).Source?.ToString()
-
-                If src IsNot Nothing AndAlso
-      (src.Contains("TsaTheme.xaml") OrElse
-       src.Contains("RyderTheme.xaml") OrElse
-       src.Contains("ShawAFBTheme.xaml")) Then
-
-                    merged.RemoveAt(i)
-
-                End If
-            Next
+            RemoveThemeDictionaries(Application.Current.Resources.MergedDictionaries)
+            RemoveThemeDictionaries(Me.Resources.MergedDictionaries)
 
             Dim themeUri As Uri
 
@@ -149,7 +138,25 @@ Namespace SmartLockerKiosk
                     themeUri = New Uri("/SmartLockerKiosk;component/Themes/TsaTheme.xaml", UriKind.Relative)
             End Select
 
-            merged.Add(New ResourceDictionary With {.Source = themeUri})
+            Me.Resources.MergedDictionaries.Add(New ResourceDictionary With {.Source = themeUri})
+
+        End Sub
+        Private Sub RemoveThemeDictionaries(merged As Collection(Of ResourceDictionary))
+
+            For i As Integer = merged.Count - 1 To 0 Step -1
+
+                Dim src = merged(i).Source?.ToString()
+
+                If src IsNot Nothing AndAlso
+           (src.Contains("TsaTheme.xaml") OrElse
+            src.Contains("RyderTheme.xaml") OrElse
+            src.Contains("ShawAFBTheme.xaml")) Then
+
+                    merged.RemoveAt(i)
+
+                End If
+
+            Next
 
         End Sub
         Private Sub ConfigureBarcodeValidation()
@@ -906,13 +913,15 @@ Namespace SmartLockerKiosk
         End Sub
         Private Function ResolveConfiguredWorkflowKey(slotKey As String) As String
 
+            If _workflowConfig Is Nothing Then Return String.Empty
+
             Select Case (If(slotKey, "")).Trim().ToLowerInvariant()
 
                 Case "pickup", "retrieve"
-                    Return AppSettings.HomePickupWorkflowKey
+                    Return If(_workflowConfig.HomePickupWorkflowKey, "").Trim()
 
                 Case "delivery", "stage", "deposit"
-                    Return AppSettings.HomeDeliveryWorkflowKey
+                    Return If(_workflowConfig.HomeDeliveryWorkflowKey, "").Trim()
 
                 Case Else
                     Return String.Empty
@@ -2043,22 +2052,35 @@ Namespace SmartLockerKiosk
 
         End Function
         Private Function GetReservedLockerNumbersForWorkOrder(workOrderNumber As String) As List(Of String)
+
             Dim wo = (If(workOrderNumber, "")).Trim()
             If wo.Length = 0 Then Return New List(Of String)()
 
+            Dim target As String = wo.ToUpperInvariant()
+
             Using db = DatabaseBootstrapper.BuildDbContext()
 
-                Dim lockerNumbers = db.Lockers.
+                Dim candidates = db.Lockers.
             AsNoTracking().
             Include(Function(l) l.Status).
             Where(Function(l) l.IsEnabled).
             Where(Function(l) l.Status IsNot Nothing).
-            Where(Function(l) (l.Status.OccupancyState = OccupancyState.Reserved) OrElse
-                              (l.Status.OccupancyState = OccupancyState.Occupied)).
-            Where(Function(l) l.Status.ReservedWorkOrderNumber IsNot Nothing AndAlso
-                              l.Status.ReservedWorkOrderNumber.Trim().ToUpper() = wo.ToUpper()).
+            Where(Function(l) l.Status.OccupancyState = OccupancyState.Reserved OrElse
+                              l.Status.OccupancyState = OccupancyState.Occupied).
             OrderBy(Function(l) l.RelayId).
             ThenBy(Function(l) l.LockerNumber).
+            ToList()
+
+                Dim lockerNumbers = candidates.
+            Where(Function(l)
+                      Dim reservedRef As String =
+                          If(l.Status.ReservedWorkOrderNumber, "").Trim().ToUpperInvariant()
+
+                      Dim lastRef As String =
+                          If(l.Status.LastWorkOrderNumber, "").Trim().ToUpperInvariant()
+
+                      Return reservedRef = target OrElse lastRef = target
+                  End Function).
             Select(Function(l) l.LockerNumber).
             ToList()
 
@@ -2068,6 +2090,7 @@ Namespace SmartLockerKiosk
             ToList()
 
             End Using
+
         End Function
         Private Async Function ProcessPickupWorkOrderAsync(workOrderNumber As String,
                                                    source As String,
@@ -3654,14 +3677,20 @@ Namespace SmartLockerKiosk
 
             If openResults IsNot Nothing Then
 
+                Dim actionService As New LockerActionService()
+
                 For Each result In openResults
 
                     If result IsNot Nothing AndAlso result.Success Then
-                        Await New LockerActionService().
-                    MarkDoorClosedAndLocalStateUpdatedAsync(result.JournalId)
+                        Await actionService.
+                MarkDoorClosedAndLocalStateUpdatedAsync(result.JournalId)
                     End If
 
                 Next
+
+                Await FinalizeSuccessfulLockerActionsAsync(
+        openResults,
+        "Pickup completed successfully.")
 
             End If
 
@@ -3783,6 +3812,25 @@ Namespace SmartLockerKiosk
             End Using
 
         End Sub
+        Private Async Function FinalizeSuccessfulLockerActionsAsync(openResults As List(Of LockerActionResult),
+                                                            message As String) As Task
+
+            If openResults Is Nothing Then Return
+
+            For Each result In openResults
+
+                If result Is Nothing OrElse Not result.Success Then Continue For
+
+                Await New LockerActionService().
+            UpdateJournalStateAsync(
+                result.JournalId,
+                LockerTransactionState.Completed,
+                LockerAckStatus.Succeeded,
+                message)
+
+            Next
+
+        End Function
 #End Region
 
 #Region "Backend / Locker actions"
@@ -3923,8 +3971,19 @@ Namespace SmartLockerKiosk
             End Using
 
             If journalId.HasValue Then
-                Await New LockerActionService().
-            MarkDoorClosedAndLocalStateUpdatedAsync(journalId.Value)
+
+                Dim actionService As New LockerActionService()
+
+                Await actionService.
+        MarkDoorClosedAndLocalStateUpdatedAsync(journalId.Value)
+
+                Await actionService.
+        UpdateJournalStateAsync(
+            journalId.Value,
+            LockerTransactionState.Completed,
+            LockerAckStatus.Succeeded,
+            "Delivery completed successfully.")
+
             End If
 
         End Function
@@ -4441,7 +4500,7 @@ Namespace SmartLockerKiosk
             Try
                 ShowPrompt("Finding an available compartment...")
 
-                assignedLockerNumber = _assigner.SelectNextAvailableLockerNumber("*")
+                assignedLockerNumber = _assigner.SelectNextAvailableAssetLockerNumber()
 
                 If String.IsNullOrWhiteSpace(assignedLockerNumber) Then
                     ShowPrompt("No compartments are currently available.")

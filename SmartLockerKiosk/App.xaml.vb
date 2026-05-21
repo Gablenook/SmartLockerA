@@ -1,4 +1,5 @@
-﻿Imports System.Threading
+﻿Imports System.Text.Json
+Imports System.Threading
 Imports System.Windows
 Imports Microsoft.EntityFrameworkCore
 Imports SmartLockerKiosk.SmartLockerKiosk
@@ -35,10 +36,6 @@ Namespace SmartLockerKiosk
             w.Show()
 
         End Sub
-
-        ' -------------------------
-        ' Startup decision model
-        ' -------------------------
         Private Enum StartupMode
             Commissioning
             Operational
@@ -119,19 +116,11 @@ Namespace SmartLockerKiosk
             }
             End Select
         End Function
-
-        ' -------------------------
-        ' Mutex
-        ' -------------------------
         Private Function TryAcquireSingleInstanceMutex() As Boolean
             Dim createdNew As Boolean = False
             _mutex = New Mutex(True, "Global\SmartLockerKiosk_SingleInstance", createdNew)
             Return createdNew
         End Function
-
-        ' -------------------------
-        ' DB row creation
-        ' -------------------------
         Private Sub EnsureKioskStateRow(db As KioskDbContext)
             Dim row = db.KioskState.
         OrderByDescending(Function(x) x.LastUpdatedUtc).
@@ -145,10 +134,6 @@ Namespace SmartLockerKiosk
                 db.SaveChanges()
             End If
         End Sub
-
-        ' -------------------------
-        ' Audit helper
-        ' -------------------------
         Private Sub SafeAudit(ev As Audit.AuditEvent)
             Try
                 Audit.AuditServices.SafeLog(ev)
@@ -158,26 +143,48 @@ Namespace SmartLockerKiosk
         End Sub
         Private Sub ApplyRuntimeConfig(correlationId As String)
 
-            ' =========================
-            ' Configure runtime settings
-            ' =========================
-            AppSettings.SelectedStyle = "Shaw" ' or future SHAW if you add a Shaw theme
-            AppSettings.KioskID = "SHAW-KIOSK-01"
-            AppSettings.SiteCode = "SHAW-AFB-01"
-            AppSettings.LocationId = "SHAW-AFB-01"
-            AppSettings.WorkflowFamily = "package"
-            AppSettings.ClientCode = "shaw"
-            AppSettings.WorkflowConfigPath = "Configs\shaw-workflow.json"
+            Dim path = IO.Path.Combine(
+        AppDomain.CurrentDomain.BaseDirectory,
+        "Configs",
+        "runtime-config.json")
 
-            SafeAudit(New Audit.AuditEvent With {
-        .EventType = Audit.AuditEventType.PolicyConfigurationChange,
-        .ActorType = Audit.ActorType.System,
-        .ActorId = SystemActorId,
-        .AffectedComponent = "AppSettings",
-        .Outcome = Audit.AuditOutcome.Success,
-        .CorrelationId = correlationId,
-        .ReasonCode = "RuntimeConfigApplied"
-    })
+            If Not IO.File.Exists(path) Then
+                Throw New InvalidOperationException($"Runtime config file not found: {path}")
+            End If
+
+            Dim json = IO.File.ReadAllText(path)
+
+            Dim cfg = JsonSerializer.Deserialize(Of RuntimeConfigDto)(
+        json,
+        New JsonSerializerOptions With {
+            .PropertyNameCaseInsensitive = True,
+            .ReadCommentHandling = JsonCommentHandling.Skip,
+            .AllowTrailingCommas = True
+        })
+
+            If cfg Is Nothing Then
+                Throw New InvalidOperationException("Runtime config could not be loaded.")
+            End If
+
+            AppSettings.BaseApiUrl = cfg.BaseApiUrl
+            AppSettings.DeviceApiKey = cfg.DeviceApiKey
+            AppSettings.SelectedStyle = cfg.SelectedStyle
+            AppSettings.KioskID = cfg.KioskID
+            AppSettings.SiteCode = cfg.SiteCode
+            AppSettings.LocationId = cfg.LocationId
+            AppSettings.WorkflowFamily = cfg.WorkflowFamily
+            AppSettings.ClientCode = cfg.ClientCode
+            AppSettings.WorkflowConfigPath = cfg.WorkflowConfigPath
+            AppSettings.UseBackendBypass = cfg.UseBackendBypass
+            AppSettings.TestModeEnabled = cfg.TestModeEnabled
+
+            TraceLogger.Log(
+        $"RUNTIME CONFIG APPLIED: " &
+        $"ClientCode={AppSettings.ClientCode}; " &
+        $"KioskID={AppSettings.KioskID}; " &
+        $"WorkflowConfigPath={AppSettings.WorkflowConfigPath}; " &
+        $"SelectedStyle={AppSettings.SelectedStyle}; " &
+        $"UseBackendBypass={AppSettings.UseBackendBypass}")
 
         End Sub
         Private Sub InitializeLocalDatabaseOrFail(correlationId As String)

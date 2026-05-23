@@ -6,6 +6,7 @@
     Public Property locationId As String
     Public Property clientCode As String
     Public Property workflow As String
+    Public Property workflowAction As String
     Public Property timestampUtc As DateTime
     Public Property requestId As String
 End Class

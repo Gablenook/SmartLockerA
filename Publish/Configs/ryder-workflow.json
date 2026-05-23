@@ -1,12 +1,13 @@
 ﻿{
   "DefaultWorkflowKey": "asset-checkout",
   "HomePickupWorkflowKey": "asset-checkout",
-  "HomeDeliveryWorkflowKey": "asset-deposit",
+  "HomeDeliveryWorkflowKey": "asset-stage",
 
   "EnabledWorkflows": [
     {
       "WorkflowKey": "asset-checkout",
       "DisplayName": "Check Out Device",
+      "HomeButtonLabel": "Check Out",
       "Mode": "asset_workflow",
       "WorkflowAction": "pickup",
 
@@ -33,8 +34,9 @@
     },
 
     {
-      "WorkflowKey": "asset-deposit",
-      "DisplayName": "Return Device",
+      "WorkflowKey": "asset-stage",
+      "DisplayName": "Load Device",
+      "HomeButtonLabel": "Load Device",
       "Mode": "asset_workflow",
       "WorkflowAction": "stage",
 
@@ -84,7 +86,6 @@
       "MaxLength": 100,
       "RejectMessage": "Credential is not valid."
     },
-
     {
       "ProfileKey": "asset_default",
       "AllowKeyboardEntry": false,

@@ -130,6 +130,7 @@ Namespace SmartLockerKiosk
                         .IsAuthorized = dto.isAuthorized,
                         .Purpose = purpose,
                         .UserId = dto.userId,
+                        .ActorID = dto.actorID,
                         .DisplayName = dto.displayName,
                         .Message = If(dto.isAuthorized, "OK", "Credential not recognized"),
                         .SessionToken = dto.sessionToken,
@@ -184,65 +185,111 @@ Namespace SmartLockerKiosk
 
         End Function
         Public Async Function ValidateAssetAsync(
-    assetTag As String,
-    ct As CancellationToken
-) As Task(Of AssetValidateResponse) _
-    Implements IOperationsBackendService.ValidateAssetAsync
+     assetTag As String,
+     ct As CancellationToken
+ ) As Task(Of AssetValidateResponse) Implements IOperationsBackendService.ValidateAssetAsync
 
-            Dim requestId = Guid.NewGuid().ToString("N")
+            Return Await ValidateAssetAsync(
+                assetTag:=assetTag,
+                workflow:="asset-deposit",
+                workflowAction:="stage",
+                ct:=ct)
+
+        End Function
+        Public Async Function ValidateAssetAsync(
+            assetTag As String,
+            workflow As String,
+            workflowAction As String,
+            ct As CancellationToken
+        ) As Task(Of AssetValidateResponse)
+
+            Dim cleanAssetTag As String = If(assetTag, "").Trim()
+            Dim cleanWorkflow As String = If(workflow, "").Trim()
+            Dim cleanWorkflowAction As String = If(workflowAction, "").Trim()
+
+            If String.IsNullOrWhiteSpace(cleanAssetTag) Then
+                Return New AssetValidateResponse With {
+                    .isValid = False,
+                    .message = "Asset tag is required."
+                }
+            End If
+
+            If String.IsNullOrWhiteSpace(cleanWorkflow) Then
+                cleanWorkflow = "asset-deposit"
+            End If
+
+            If String.IsNullOrWhiteSpace(cleanWorkflowAction) Then
+                cleanWorkflowAction = "stage"
+            End If
+
+            If AppSettings.TestModeEnabled Then
+                Return New AssetValidateResponse With {
+                    .isValid = True,
+                    .assetTag = cleanAssetTag,
+                    .deviceType = "RF_DEVICE",
+                    .sizeCode = "",
+                    .message = "OK"
+                }
+            End If
+
+            AppSettings.RequireBackendConfig()
+
+            Dim requestId As String = Guid.NewGuid().ToString("N")
 
             Dim req As New AssetValidateRequest With {
-        .assetTag = assetTag,
-        .credentialKey = Nothing,
-        .kioskId = AppSettings.KioskID,
-        .siteCode = AppSettings.SiteCode,
-        .locationId = AppSettings.LocationId,
-        .clientCode = AppSettings.ClientCode,
-        .workflow = "asset-deposit",
-        .timestampUtc = DateTime.UtcNow,
-        .requestId = requestId
-    }
+                .assetTag = cleanAssetTag,
+                .credentialKey = Nothing,
+                .kioskId = AppSettings.KioskID,
+                .siteCode = AppSettings.SiteCode,
+                .locationId = AppSettings.LocationId,
+                .clientCode = AppSettings.ClientCode,
+                .workflow = cleanWorkflow,
+                .workflowAction = cleanWorkflowAction,
+                .timestampUtc = DateTime.UtcNow,
+                .requestId = requestId
+            }
 
-            Dim json = JsonSerializer.Serialize(req, New JsonSerializerOptions With {
-        .WriteIndented = True
-    })
+            Dim json As String = JsonSerializer.Serialize(req, _jsonOpts)
 
-            'Debug code
-            TraceLogger.Log("ASSET VALIDATE URL=/asset/validate")
-            TraceLogger.Log("ASSET VALIDATE REQUEST JSON:")
-            TraceLogger.Log(json)
-            'End debug code
+            TraceLogger.Log("ASSET VALIDATE URL=" & AppSettings.BaseApiUrl.TrimEnd("/"c) & "/" & AssetValidate.TrimStart("/"c))
+            TraceLogger.Log("ASSET VALIDATE REQUEST JSON=" & json)
 
-
-
-            Using msg = CreateJsonRequest(HttpMethod.Post, ApiRoutes.AssetValidate, requestId, json)
+            Using msg = CreateJsonRequest(HttpMethod.Post, AssetValidate, requestId, json)
                 Using resp = Await _http.SendAsync(msg, ct)
 
-                    Dim body = Await resp.Content.ReadAsStringAsync()
+                    Dim body As String = Await resp.Content.ReadAsStringAsync()
 
-                    'Debug code
-                    TraceLogger.Log($"ASSET VALIDATE RESPONSE STATUS={(CInt(resp.StatusCode))} {resp.ReasonPhrase}")
-                    TraceLogger.Log("ASSET VALIDATE RESPONSE BODY:")
-                    TraceLogger.Log(body)
-
-                    'End Debug code
-
+                    TraceLogger.Log("ASSET VALIDATE RESPONSE HTTP=" & CInt(resp.StatusCode).ToString())
+                    TraceLogger.Log("ASSET VALIDATE RESPONSE BODY=" & body)
 
                     If Not resp.IsSuccessStatusCode Then
                         Return New AssetValidateResponse With {
-                    .isValid = False,
-                    .message = "Backend error"
-                }
+                            .isValid = False,
+                            .message = ExtractBackendErrorMessage(body, resp)
+                        }
                     End If
 
+                    Dim result As AssetValidateResponse = Nothing
+
                     Try
-                        Return JsonSerializer.Deserialize(Of AssetValidateResponse)(body, _jsonOpts)
-                    Catch
+                        result = JsonSerializer.Deserialize(Of AssetValidateResponse)(body, _jsonOpts)
+                    Catch jsonEx As JsonException
+                        TraceLogger.LogExceptionDeep("ASSET_VALIDATE_RESPONSE_JSON_FAIL", jsonEx)
+
                         Return New AssetValidateResponse With {
-                    .isValid = False,
-                    .message = "Invalid response"
-                }
+                            .isValid = False,
+                            .message = "Backend response was not valid asset-validation JSON."
+                        }
                     End Try
+
+                    If result Is Nothing Then
+                        Return New AssetValidateResponse With {
+                            .isValid = False,
+                            .message = "Backend returned an empty asset-validation response."
+                        }
+                    End If
+
+                    Return result
 
                 End Using
             End Using
@@ -467,9 +514,11 @@ Namespace SmartLockerKiosk
 ) As Task(Of LockerAuthorizeResponseDto) Implements IOperationsBackendService.AuthorizeLockerActionAsync
 
             If dto Is Nothing Then Throw New ArgumentNullException(NameOf(dto))
+
             If String.IsNullOrWhiteSpace(dto.requestId) Then Throw New ArgumentException("requestId is required.")
             If String.IsNullOrWhiteSpace(dto.correlationId) Then Throw New ArgumentException("correlationId is required.")
             If String.IsNullOrWhiteSpace(dto.requestedBy) Then Throw New ArgumentException("requestedBy is required.")
+            If String.IsNullOrWhiteSpace(dto.actorId) Then Throw New ArgumentException("actorId is required.")
             If String.IsNullOrWhiteSpace(dto.siteCode) Then Throw New ArgumentException("siteCode is required.")
             If String.IsNullOrWhiteSpace(dto.lockerBankId) Then Throw New ArgumentException("lockerBankId is required.")
             If String.IsNullOrWhiteSpace(dto.lockerId) Then Throw New ArgumentException("lockerId is required.")
@@ -482,23 +531,57 @@ Namespace SmartLockerKiosk
 
             AppSettings.RequireBackendConfig()
 
-            Dim json = JsonSerializer.Serialize(dto, _jsonOpts)
+            TraceLogger.Log(
+        "LOCKER AUTHORIZE DTO: " &
+        "requestId=" & If(dto.requestId, "<NULL>") &
+        "; correlationId=" & If(dto.correlationId, "<NULL>") &
+        "; requestedBy=" & If(dto.requestedBy, "<NULL>") &
+        "; actorId=" & If(dto.actorId, "<NULL>") &
+        "; lockerId=" & If(dto.lockerId, "<NULL>") &
+        "; doorId=" & If(dto.doorId, "<NULL>") &
+        "; reasonCode=" & If(dto.reasonCode, "<NULL>"))
+
+            Dim json As String = JsonSerializer.Serialize(dto, _jsonOpts)
+
+            TraceLogger.Log("LOCKER AUTHORIZE URL=" &
+                    AppSettings.BaseApiUrl.TrimEnd("/"c) & "/" &
+                    ApiRoutes.LockerAuthorize.TrimStart("/"c))
+
+            TraceLogger.Log("LOCKER AUTHORIZE REQUEST JSON=" & json)
 
             Using msg = CreateJsonRequest(HttpMethod.Post, ApiRoutes.LockerAuthorize, dto.requestId, json, bearerToken)
                 Using resp = Await _http.SendAsync(msg, ct)
-                    Dim body = Await resp.Content.ReadAsStringAsync()
+
+                    Dim body As String = Await resp.Content.ReadAsStringAsync()
+
+                    TraceLogger.Log("LOCKER AUTHORIZE RESPONSE HTTP=" &
+                            CInt(resp.StatusCode).ToString() &
+                            " " &
+                            resp.ReasonPhrase)
+
+                    TraceLogger.Log("LOCKER AUTHORIZE RESPONSE BODY=" &
+                            If(String.IsNullOrWhiteSpace(body), "<empty>", body))
 
                     If Not resp.IsSuccessStatusCode Then
                         Dim errMsg = ExtractBackendErrorMessage(body, resp)
                         Throw New InvalidOperationException(errMsg)
                     End If
 
-                    Dim result = JsonSerializer.Deserialize(Of LockerAuthorizeResponseDto)(body, _jsonOpts)
+                    Dim result As LockerAuthorizeResponseDto = Nothing
+
+                    Try
+                        result = JsonSerializer.Deserialize(Of LockerAuthorizeResponseDto)(body, _jsonOpts)
+                    Catch jsonEx As JsonException
+                        TraceLogger.LogExceptionDeep("LOCKER_AUTHORIZE_RESPONSE_JSON_FAIL", jsonEx)
+                        Throw New InvalidOperationException("Locker authorize response was not valid JSON.", jsonEx)
+                    End Try
+
                     If result Is Nothing Then
                         Throw New InvalidOperationException("Locker authorize response was empty.")
                     End If
 
                     Return result
+
                 End Using
             End Using
 
@@ -531,9 +614,7 @@ Namespace SmartLockerKiosk
             End If
 
             Dim requestId = Guid.NewGuid().ToString("N")
-            Dim json = JsonSerializer.Serialize(dto, New JsonSerializerOptions With {
-        .WriteIndented = True
-    })
+            Dim json = JsonSerializer.Serialize(dto, New JsonSerializerOptions With {.WriteIndented = True})
 
             TraceLogger.Log("LOCKER ACK URL=" & AppSettings.BaseApiUrl.TrimEnd("/"c) & "/" & ApiRoutes.LockerAck.TrimStart("/"c))
             TraceLogger.Log("LOCKER ACK REQUEST JSON:")
@@ -548,15 +629,41 @@ Namespace SmartLockerKiosk
                     TraceLogger.Log("LOCKER ACK RESPONSE BODY:")
                     TraceLogger.Log(If(String.IsNullOrWhiteSpace(body), "<empty>", body))
 
-                    If resp.IsSuccessStatusCode Then Return
+                    If Not resp.IsSuccessStatusCode Then
+                        If resp.StatusCode = HttpStatusCode.Conflict Then Return
 
-                    If resp.StatusCode = HttpStatusCode.Conflict Then Return
+                        If resp.StatusCode = HttpStatusCode.Unauthorized OrElse resp.StatusCode = HttpStatusCode.Forbidden Then
+                            Throw New InvalidOperationException($"ACK unauthorized ({CInt(resp.StatusCode)}).")
+                        End If
 
-                    If resp.StatusCode = HttpStatusCode.Unauthorized OrElse resp.StatusCode = HttpStatusCode.Forbidden Then
-                        Throw New InvalidOperationException($"ACK unauthorized ({CInt(resp.StatusCode)}).")
+                        Throw New InvalidOperationException($"ACK failed ({CInt(resp.StatusCode)}): {Truncate(body, 300)}")
                     End If
 
-                    Throw New InvalidOperationException($"ACK failed ({CInt(resp.StatusCode)}): {Truncate(body, 300)}")
+                    If Not String.IsNullOrWhiteSpace(body) Then
+                        Using doc = JsonDocument.Parse(body)
+                            Dim root = doc.RootElement
+
+                            If root.TryGetProperty("success", Nothing) Then
+                                Dim successElement = root.GetProperty("success")
+
+                                If successElement.ValueKind = JsonValueKind.False Then
+                                    Dim resultCode As String = ""
+                                    Dim message As String = ""
+
+                                    If root.TryGetProperty("resultCode", Nothing) Then
+                                        resultCode = root.GetProperty("resultCode").GetString()
+                                    End If
+
+                                    If root.TryGetProperty("message", Nothing) Then
+                                        message = root.GetProperty("message").GetString()
+                                    End If
+
+                                    Throw New InvalidOperationException(
+                                $"ACK business failure. resultCode={resultCode}; message={message}")
+                                End If
+                            End If
+                        End Using
+                    End If
 
                 End Using
             End Using

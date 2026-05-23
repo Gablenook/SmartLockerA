@@ -11,4 +11,5 @@
     Public Property requestedAtUtc As String
     Public Property reasonCode As String
     Public Property metadata As LockerAuthorizeMetadataDto
+    Public Property actorId As String
 End Class

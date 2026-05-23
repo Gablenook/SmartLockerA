@@ -1,0 +1,18 @@
+﻿{
+  "BaseApiUrl": "https://smartlocker-ap-prod-b3h2gqb9fwfufmdy.eastus-01.azurewebsites.net",
+  "DeviceApiKey": "dev-kiosk-key-123",
+
+  "SelectedStyle": "TSA",
+
+  "KioskID": "TSA-KIOSK-01",
+  "SiteCode": "TSA-SITE-01",
+  "LocationId": "TSA-LOCATION-01",
+
+  "WorkflowFamily": "package",
+  "ClientCode": "tsa",
+
+  "WorkflowConfigPath": "Configs\\tsa-workflow.json",
+
+  "UseBackendBypass": false,
+  "TestModeEnabled": false
+}

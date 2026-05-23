@@ -81,7 +81,6 @@ Public Class BypassOperationsBackendService
 
         Return result
     End Function
-
     Public Function ValidateAssetAsync(
     assetTag As String,
     ct As CancellationToken
@@ -97,7 +96,6 @@ Public Class BypassOperationsBackendService
         .message = "OK"
     })
     End Function
-
     Public Async Function ReserveLockerAsync(
         workOrderNumber As String,
         requestedLockerNumber As String,
@@ -153,8 +151,6 @@ Public Class BypassOperationsBackendService
         Catch
         End Try
     End Sub
-
-
     Public Async Function AuthorizeLockerActionAsync(
     dto As LockerAuthorizeRequestDto,
     bearerToken As String,
@@ -183,7 +179,6 @@ Public Class BypassOperationsBackendService
             }
         }
     End Function
-
     Public Async Function AckLockerActionAsync(
         dto As LockerAckRequestDto,
         bearerToken As String,

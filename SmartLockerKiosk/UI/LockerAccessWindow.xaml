@@ -398,7 +398,7 @@
 
                 <TextBlock x:Name="RevisionTextBlock"
            Grid.Row="2"
-           Text="Revision 1.1.3"
+           Text="Revision 1.2.1"
            HorizontalAlignment="Left"
            VerticalAlignment="Bottom"
            Margin="20,0,0,20"

@@ -1,0 +1,18 @@
+﻿{
+  "BaseApiUrl": "https://smartlocker-ap-prod-b3h2gqb9fwfufmdy.eastus-01.azurewebsites.net",
+  "DeviceApiKey": "dev-kiosk-key-123",
+
+  "SelectedStyle": "RYDER",
+
+  "KioskID": "RYDER-KIOSK-01",
+  "SiteCode": "RYDER-CONYERS-01",
+  "LocationId": "RYDER-CONYERS-GA-01",
+
+  "WorkflowFamily": "asset",
+  "ClientCode": "ryder",
+
+  "WorkflowConfigPath": "Configs\\ryder-workflow.json",
+
+  "UseBackendBypass": false,
+  "TestModeEnabled": false
+}

@@ -7,4 +7,5 @@
     Public Property authorizedDevices As List(Of String)
     Public Property Permissions As List(Of String)
     Public Property roles As List(Of String)
+    Public Property actorID As String
 End Class

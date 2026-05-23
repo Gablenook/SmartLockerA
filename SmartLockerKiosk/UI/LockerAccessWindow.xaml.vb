@@ -3,7 +3,7 @@ Imports System.ComponentModel
 Imports System.Net
 Imports System.Net.Http
 Imports System.Net.Http.Headers
-Imports System.Net.Http.Json
+Imports System.Net.Http.Jsona
 Imports System.Runtime.InteropServices
 Imports System.Text
 Imports System.Text.Json
@@ -108,8 +108,9 @@ Namespace SmartLockerKiosk
         $"WORKFLOW REGISTERED: " &
         $"Key={wf.WorkflowKey}; " &
         $"Display={wf.DisplayName}; " &
-        $"Mode={wf.Mode}; " &
-        $"Action={wf.WorkflowAction}")
+$"HomeButtonLabel={wf.HomeButtonLabel}; " &
+$"Mode={wf.Mode}; " &
+$"Action={wf.WorkflowAction}")
 
             Next
 
@@ -343,10 +344,11 @@ Namespace SmartLockerKiosk
                 }
             }
         },
-        New WorkflowDefinition With {
-            .WorkflowKey = "asset-checkout",
-            .DisplayName = "Check Out",
-            .Mode = "asset_workflow",
+       New WorkflowDefinition With {
+    .WorkflowKey = "asset-checkout",
+    .DisplayName = "Check Out",
+    .HomeButtonLabel = "Check Out",
+    .Mode = "asset_workflow",
             .WorkflowAction = "pickup",
             .Options = New Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase) From {
                 {"ReferenceLabel", "Device Type"}
@@ -368,10 +370,11 @@ Namespace SmartLockerKiosk
                 }
             }
         },
-        New WorkflowDefinition With {
-            .WorkflowKey = "asset-deposit",
-            .DisplayName = "Check In",
-            .Mode = "asset_workflow",
+       New WorkflowDefinition With {
+    .WorkflowKey = "asset-deposit",
+    .DisplayName = "Check In",
+    .HomeButtonLabel = "Check In",
+    .Mode = "asset_workflow",
             .WorkflowAction = "stage",
             .Options = New Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase) From {
                 {"ReferenceLabel", "Asset Tag"}
@@ -499,6 +502,7 @@ Namespace SmartLockerKiosk
 
                 workflow.WorkflowKey = If(workflow.WorkflowKey, "").Trim()
                 workflow.DisplayName = If(workflow.DisplayName, "").Trim()
+                workflow.HomeButtonLabel = If(workflow.HomeButtonLabel, "").Trim()
                 workflow.Mode = If(workflow.Mode, "").Trim()
                 workflow.WorkflowAction = If(workflow.WorkflowAction, "").Trim().ToLowerInvariant()
 
@@ -717,10 +721,9 @@ Namespace SmartLockerKiosk
             If profileExists Then Return
 
             Dim assetWorkflow = config.EnabledWorkflows.FirstOrDefault(
-        Function(w) w IsNot Nothing AndAlso
-                    String.Equals(If(w.WorkflowKey, "").Trim(),
-                                  "asset-deposit",
-                                  StringComparison.OrdinalIgnoreCase))
+    Function(w) w IsNot Nothing AndAlso
+                String.Equals(If(w.Mode, "").Trim(), "asset_workflow", StringComparison.OrdinalIgnoreCase) AndAlso
+                String.Equals(If(w.WorkflowAction, "").Trim(), "stage", StringComparison.OrdinalIgnoreCase))
 
             If assetWorkflow Is Nothing OrElse assetWorkflow.Steps Is Nothing Then Return
 
@@ -752,9 +755,14 @@ Namespace SmartLockerKiosk
 
         End Function
         Private Function IsAssetManagementWorkflow() As Boolean
-            Return _activeWorkflow IsNot Nothing AndAlso
-           (String.Equals(GetActiveWorkflowKey(), "asset-deposit", StringComparison.OrdinalIgnoreCase) OrElse
-            String.Equals(GetActiveWorkflowKey(), "asset-checkout", StringComparison.OrdinalIgnoreCase))
+
+            If _activeWorkflow Is Nothing Then Return False
+
+            Return String.Equals(
+        If(_activeWorkflow.Mode, "").Trim(),
+        "asset_workflow",
+        StringComparison.OrdinalIgnoreCase)
+
         End Function
         Private Function GetActiveWorkflowKey() As String
             If _activeWorkflow Is Nothing Then Return String.Empty
@@ -887,30 +895,99 @@ Namespace SmartLockerKiosk
         End Sub
         Private Sub RefreshHomeWorkflowButtons()
 
-            Dim pickupWorkflow = ResolveHomeWorkflow("pickup")
-            Dim stageWorkflow = ResolveHomeWorkflow("delivery")
+            Try
 
-            PickupButton.Visibility =
-        If(pickupWorkflow Is Nothing, Visibility.Collapsed, Visibility.Visible)
+                TraceLogger.Log("REFRESH HOME WORKFLOW BUTTONS START")
 
-            DeliverButton.Visibility =
-        If(stageWorkflow Is Nothing, Visibility.Collapsed, Visibility.Visible)
+                Dim pickupWorkflow = ResolveHomeWorkflow("pickup")
+                Dim stageWorkflow = ResolveHomeWorkflow("delivery")
 
-            If pickupWorkflow IsNot Nothing Then
-                PickupButton.Content =
-            If(String.IsNullOrWhiteSpace(pickupWorkflow.DisplayName),
-               "Pickup",
-               pickupWorkflow.DisplayName.Trim())
-            End If
+                PickupButton.Visibility =
+            If(pickupWorkflow Is Nothing,
+               Visibility.Collapsed,
+               Visibility.Visible)
 
-            If stageWorkflow IsNot Nothing Then
-                DeliverButton.Content =
-            If(String.IsNullOrWhiteSpace(stageWorkflow.DisplayName),
-               "Stage",
-               stageWorkflow.DisplayName.Trim())
-            End If
+                DeliverButton.Visibility =
+            If(stageWorkflow Is Nothing,
+               Visibility.Collapsed,
+               Visibility.Visible)
+
+                If pickupWorkflow IsNot Nothing Then
+
+                    Dim pickupLabel As String =
+                GetWorkflowButtonLabel(pickupWorkflow, "Check Out")
+
+                    PickupButton.Content = pickupLabel
+                    PickupButton.Tag = pickupWorkflow.WorkflowKey
+
+                    TraceLogger.Log(
+                "PICKUP BUTTON configured. " &
+                "Label='" & pickupLabel & "', " &
+                "WorkflowKey='" & pickupWorkflow.WorkflowKey & "', " &
+                "WorkflowAction='" & pickupWorkflow.WorkflowAction & "'")
+
+                End If
+
+                If stageWorkflow IsNot Nothing Then
+
+                    Dim stageLabel As String =
+                GetWorkflowButtonLabel(stageWorkflow, "Check In")
+
+                    DeliverButton.Content = stageLabel
+                    DeliverButton.Tag = stageWorkflow.WorkflowKey
+
+                    TraceLogger.Log(
+                "DELIVER BUTTON configured. " &
+                "Label='" & stageLabel & "', " &
+                "WorkflowKey='" & stageWorkflow.WorkflowKey & "', " &
+                "WorkflowAction='" & stageWorkflow.WorkflowAction & "'")
+
+                End If
+
+                TraceLogger.Log("REFRESH HOME WORKFLOW BUTTONS END")
+
+            Catch ex As Exception
+
+                TraceLogger.Log(
+            "REFRESH HOME WORKFLOW BUTTONS ERROR: " &
+            ex.ToString())
+
+            End Try
 
         End Sub
+
+
+        Private Function GetWorkflowButtonLabel(
+    workflow As WorkflowDefinition,
+    fallbackText As String) As String
+
+            Try
+
+                If workflow Is Nothing Then
+                    Return fallbackText
+                End If
+
+                If Not String.IsNullOrWhiteSpace(workflow.HomeButtonLabel) Then
+                    Return workflow.HomeButtonLabel.Trim()
+                End If
+
+                If Not String.IsNullOrWhiteSpace(workflow.DisplayName) Then
+                    Return workflow.DisplayName.Trim()
+                End If
+
+                Return fallbackText
+
+            Catch ex As Exception
+
+                TraceLogger.Log(
+            "GET WORKFLOW BUTTON LABEL ERROR: " &
+            ex.ToString())
+
+                Return fallbackText
+
+            End Try
+
+        End Function
         Private Function ResolveConfiguredWorkflowKey(slotKey As String) As String
 
             If _workflowConfig Is Nothing Then Return String.Empty
@@ -1826,6 +1903,91 @@ Namespace SmartLockerKiosk
         End Function)
 
         End Function
+        Private Async Function AuthorizeLockerOpenActionForAssetAsync(
+    assetTag As String,
+    lockerNumber As String,
+    correlationId As String,
+    sessionUserId As String,
+    ct As CancellationToken
+) As Task(Of LockerAuthorizeResponseDto)
+
+            Dim cleanAssetTag As String = If(assetTag, "").Trim()
+            Dim cleanLockerNumber As String = If(lockerNumber, "").Trim()
+            Dim cleanActorId As String = If(sessionUserId, "").Trim()
+            Dim cleanCorrelationId As String = If(correlationId, "").Trim()
+
+            If String.IsNullOrWhiteSpace(cleanAssetTag) Then
+                Throw New ArgumentException("assetTag is required.", NameOf(assetTag))
+            End If
+
+            If String.IsNullOrWhiteSpace(cleanLockerNumber) Then
+                Throw New ArgumentException("lockerNumber is required.", NameOf(lockerNumber))
+            End If
+
+            If String.IsNullOrWhiteSpace(cleanActorId) Then
+                Throw New InvalidOperationException("ActorId is required before authorizing asset locker action.")
+            End If
+
+            If String.IsNullOrWhiteSpace(cleanCorrelationId) Then
+                cleanCorrelationId = Guid.NewGuid().ToString("N")
+            End If
+
+            Using db = DatabaseBootstrapper.BuildDbContext()
+
+                Dim locker = db.Lockers.
+            AsNoTracking().
+            SingleOrDefault(Function(l) l.LockerNumber = cleanLockerNumber)
+
+                If locker Is Nothing Then
+                    Throw New InvalidOperationException($"Locker {cleanLockerNumber} was not found.")
+                End If
+
+                Dim siteCode As String =
+            If(String.IsNullOrWhiteSpace(AppSettings.SiteCode),
+               AppSettings.LocationId,
+               AppSettings.SiteCode)
+
+                Dim workflowKey As String = GetActiveWorkflowKey()
+                Dim workflowAction As String = GetWorkflowAction(_activeWorkflow)
+
+                Dim dto As New LockerAuthorizeRequestDto With {
+            .requestId = Guid.NewGuid().ToString("N"),
+            .correlationId = cleanCorrelationId,
+            .requestedBy = cleanActorId,
+            .actorId = cleanActorId,
+            .requestedByType = "user",
+            .siteCode = siteCode,
+            .lockerBankId = $"BANK-{locker.Branch}",
+            .lockerId = locker.LockerNumber,
+            .doorId = $"D{locker.RelayId}",
+            .actionType = "open_door",
+            .requestedAtUtc = DateTime.UtcNow.ToString("o"),
+            .reasonCode = "ASSET_DEPOSIT",
+            .metadata = New LockerAuthorizeMetadataDto With {
+                .workOrderId = cleanAssetTag
+            }
+        }
+
+                TraceLogger.Log(
+            "ASSET LOCKER AUTHORIZE REQUEST: " &
+            "actorId=" & cleanActorId &
+            "; requestedBy=" & cleanActorId &
+            "; assetTag=" & cleanAssetTag &
+            "; locker=" & cleanLockerNumber &
+            "; workflow=" & workflowKey &
+            "; workflowAction=" & workflowAction &
+            "; correlationId=" & cleanCorrelationId)
+
+                Return Await _backend.AuthorizeLockerActionAsync(
+            dto,
+            _sessionToken,
+            ct)
+
+            End Using
+
+        End Function
+
+
 #End Region
 
 #Region "Pickup workflow"
@@ -2757,11 +2919,36 @@ Namespace SmartLockerKiosk
             SetUiEnabled(False)
 
             Try
-                Dim result = Await _backend.ValidateAssetAsync(normalizedAsset, CancellationToken.None)
+
+                Dim workflowKey As String = If(_activeWorkflow?.WorkflowKey, "").Trim()
+                Dim workflowAction As String = GetWorkflowAction(_activeWorkflow)
+
+                TraceLogger.Log(
+            "SUBMIT ASSET SCAN - validating asset. " &
+            "assetTag=" & normalizedAsset &
+            "; workflow=" & workflowKey &
+            "; workflowAction=" & workflowAction)
+
+                Dim opsBackend = TryCast(_backend, OperationsBackendService)
+
+                Dim result As AssetValidateResponse
+
+                If opsBackend IsNot Nothing Then
+                    result = Await opsBackend.ValidateAssetAsync(
+                assetTag:=normalizedAsset,
+                workflow:=workflowKey,
+                workflowAction:=workflowAction,
+                ct:=CancellationToken.None)
+                Else
+                    result = Await _backend.ValidateAssetAsync(
+                normalizedAsset,
+                CancellationToken.None)
+                End If
 
                 If myEpoch <> _uiEpoch Then Return
 
                 If result Is Nothing OrElse Not result.isValid Then
+
                     Dim msg As String = If(result?.message, String.Empty).Trim()
 
                     If msg.Length = 0 Then
@@ -2782,11 +2969,20 @@ Namespace SmartLockerKiosk
                     SetUiEnabled(True)
                     FocusHidSink()
                     Return
+
                 End If
 
-                _activeAssetTag = result.assetTag
-                _activeDeviceType = result.deviceType
-                _activeSizeCode = result.sizeCode
+                _activeAssetTag = If(result.assetTag, normalizedAsset).Trim()
+                _activeDeviceType = If(result.deviceType, "").Trim()
+                _activeSizeCode = If(result.sizeCode, "").Trim()
+
+                TraceLogger.Log(
+            "SUBMIT ASSET SCAN - validation accepted. " &
+            "assetTag=" & _activeAssetTag &
+            "; deviceType=" & _activeDeviceType &
+            "; sizeCode=" & _activeSizeCode &
+            "; workflow=" & workflowKey &
+            "; workflowAction=" & workflowAction)
 
                 Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
             .EventType = Audit.AuditEventType.PolicyConfigurationChange,
@@ -2795,7 +2991,7 @@ Namespace SmartLockerKiosk
             .AffectedComponent = "LockerAccessWindow",
             .Outcome = Audit.AuditOutcome.Success,
             .CorrelationId = Guid.NewGuid().ToString("N"),
-            .ReasonCode = $"AssetScanned;AssetTag={normalizedAsset};Source={source};Workflow={GetActiveWorkflowKey()}"
+            .ReasonCode = $"AssetScanned;AssetTag={normalizedAsset};Source={source};Workflow={GetActiveWorkflowKey()};WorkflowAction={workflowAction}"
         })
 
                 If myEpoch <> _uiEpoch Then Return
@@ -2804,7 +3000,10 @@ Namespace SmartLockerKiosk
                 Return
 
             Catch ex As Exception
+
                 If myEpoch <> _uiEpoch Then Return
+
+                TraceExceptionDeep("SUBMIT_ASSET_SCAN_FAILED", ex)
 
                 ShowPrompt("System unavailable. Please try again.")
 
@@ -2816,10 +3015,12 @@ Namespace SmartLockerKiosk
                 Return
 
             Finally
+
                 If myEpoch = _uiEpoch Then
                     SetUiEnabled(True)
                     FocusHidSink()
                 End If
+
             End Try
 
         End Sub
@@ -2846,41 +3047,70 @@ Namespace SmartLockerKiosk
 
             Dim myEpoch As Integer = _uiEpoch
 
-            _state = ScreenState.AwaitDefectDecision
-            SetUiEnabled(False)
+            Try
+                TraceLogger.Log($"DEFECT DECISION START epoch={myEpoch}, currentEpoch={_uiEpoch}")
 
-            Dim options As New List(Of DefectOption) From {
-        New DefectOption("Normal Return", "NORMAL"),
-        New DefectOption("Defective", "DEFECTIVE")
-    }
+                _state = ScreenState.AwaitDefectDecision
 
-            Dim selected = Await ShowTouchSelectionAsync(
-        message:="Is this device defective?",
-        options:=options,
-        timeoutSeconds:=20,
-        myEpoch:=myEpoch)
+                ' IMPORTANT:
+                ' Do NOT call SetUiEnabled(False) here.
+                ' If SetUiEnabled(False) disables a parent container, the defect buttons
+                ' may be created but not visible/clickable.
 
-            If myEpoch <> _uiEpoch Then Return
+                Dim options As New List(Of DefectOption) From {
+            New DefectOption("Normal Return", "NORMAL"),
+            New DefectOption("Defective", "DEFECTIVE")
+        }
 
-            If String.IsNullOrWhiteSpace(selected) Then
-                ShowPrompt("Selection timed out. Returning to start.")
-                Await Task.Delay(3000)
+                TraceLogger.Log($"DEFECT OPTIONS COUNT={options.Count}")
 
-                If myEpoch = _uiEpoch Then
-                    ResetToAwaitWorkflowChoice()
+                Dim selected = Await ShowTouchSelectionAsync(
+            message:="Is this device defective?",
+            options:=options,
+            timeoutSeconds:=20,
+            myEpoch:=myEpoch)
+
+                TraceLogger.Log($"DEFECT DECISION RESULT selected='{If(selected, "<NULL>")}', epoch={myEpoch}, currentEpoch={_uiEpoch}")
+
+                If myEpoch <> _uiEpoch Then
+                    TraceLogger.Log("DEFECT DECISION ABORTED - epoch changed after selection.")
+                    Return
                 End If
 
-                Return
-            End If
+                If String.IsNullOrWhiteSpace(selected) Then
+                    TraceLogger.Log("DEFECT DECISION TIMED OUT - returning to start.")
 
-            If selected = "DEFECTIVE" Then
-                _isDefectiveReturn = True
-                PromptForDefectType()
-            Else
-                _isDefectiveReturn = False
-                _selectedDefectType = Nothing
-                AdvanceToNextStep()
-            End If
+                    ShowPrompt("Selection timed out. Returning to start.")
+                    Await Task.Delay(3000)
+
+                    If myEpoch = _uiEpoch Then
+                        ResetToAwaitWorkflowChoice()
+                    End If
+
+                    Return
+                End If
+
+                If String.Equals(selected, "DEFECTIVE", StringComparison.OrdinalIgnoreCase) Then
+                    TraceLogger.Log("DEFECT DECISION SELECTED: DEFECTIVE")
+
+                    _isDefectiveReturn = True
+                    PromptForDefectType()
+                Else
+                    TraceLogger.Log("DEFECT DECISION SELECTED: NORMAL")
+
+                    _isDefectiveReturn = False
+                    _selectedDefectType = Nothing
+                    AdvanceToNextStep()
+                End If
+            Catch ex As Exception
+
+                TraceLogger.Log("DEFECT DECISION ERROR: " & ex.ToString())
+
+                ShowPrompt("An error occurred while asking for the defect status. Returning to start.")
+
+                ResetToAwaitWorkflowChoice()
+
+            End Try
 
         End Sub
         Private Async Sub PromptForDefectType()
@@ -2888,7 +3118,6 @@ Namespace SmartLockerKiosk
             Dim myEpoch As Integer = _uiEpoch
 
             _state = ScreenState.AwaitDefectType
-            SetUiEnabled(False)
 
             Dim options As New List(Of DefectOption) From {
         New DefectOption("Battery Issue", "Battery Issue"),
@@ -2926,64 +3155,149 @@ Namespace SmartLockerKiosk
                 Me.Value = value
             End Sub
         End Class
-        Private Function ShowTouchSelectionAsync(message As String,
-                                         options As List(Of DefectOption),
-                                         timeoutSeconds As Integer,
-                                         myEpoch As Integer) As Task(Of String)
+        Private Async Function ShowTouchSelectionAsync(
+    message As String,
+    options As List(Of DefectOption),
+    timeoutSeconds As Integer,
+    myEpoch As Integer
+) As Task(Of String)
 
-            Dim tcs As New TaskCompletionSource(Of String)()
+            Try
+                TraceLogger.Log($"SHOW TOUCH SELECTION START message='{message}', timeout={timeoutSeconds}, epoch={myEpoch}, currentEpoch={_uiEpoch}")
 
-            DefectButtonGrid.Children.Clear()
-            DefectPromptText.Text = message
-
-            For Each opt In options
-
-                Dim btn As New Button With {
-            .Content = opt.Text,
-            .Tag = opt.Value,
-            .FontSize = 30,
-            .FontWeight = FontWeights.Bold,
-            .MinHeight = 95,
-            .Margin = New Thickness(10),
-            .Padding = New Thickness(20),
-            .Background = TryCast(Application.Current.Resources("BrandPrimaryButtonBrush"), Brush),
-            .Foreground = TryCast(Application.Current.Resources("BrandPrimaryButtonTextBrush"), Brush)
-        }
-
-                AddHandler btn.Click,
-            Sub(sender, e)
-                If myEpoch <> _uiEpoch Then
-                    tcs.TrySetResult(Nothing)
-                    Return
+                If options Is Nothing Then
+                    TraceLogger.Log("SHOW TOUCH SELECTION ABORT - options is Nothing.")
+                    Return Nothing
                 End If
 
-                Dim selectedButton = DirectCast(sender, Button)
-                tcs.TrySetResult(CStr(selectedButton.Tag))
-            End Sub
+                If options.Count = 0 Then
+                    TraceLogger.Log("SHOW TOUCH SELECTION ABORT - options.Count = 0.")
+                    Return Nothing
+                End If
 
-                DefectButtonGrid.Children.Add(btn)
-            Next
+                TraceLogger.Log($"SHOW TOUCH SELECTION OPTIONS COUNT={options.Count}")
 
-            DefectPanel.Visibility = Visibility.Visible
+                Dim tcs As New TaskCompletionSource(Of String)(
+            TaskCreationOptions.RunContinuationsAsynchronously)
 
-            Dim timeoutTask = Task.Delay(TimeSpan.FromSeconds(timeoutSeconds))
+                Await Dispatcher.InvokeAsync(
+            Sub()
+                TraceLogger.Log("SHOW TOUCH SELECTION UI BUILD START")
 
-            Return Task.Run(
-        Async Function()
-            Dim completed = Await Task.WhenAny(tcs.Task, timeoutTask)
+                DefectButtonGrid.Children.Clear()
+                DefectPromptText.Text = message
 
-            Await Dispatcher.InvokeAsync(
-                Sub()
-                    DefectPanel.Visibility = Visibility.Collapsed
-                    DefectButtonGrid.Children.Clear()
-                End Sub)
+                DefectPanel.Visibility = Visibility.Visible
+                DefectPanel.IsEnabled = True
+                DefectPanel.IsHitTestVisible = True
 
-            If completed Is timeoutTask Then
+                DefectButtonGrid.Visibility = Visibility.Visible
+                DefectButtonGrid.IsEnabled = True
+                DefectButtonGrid.IsHitTestVisible = True
+
+                TraceLogger.Log($"DEFECT PANEL Visibility={DefectPanel.Visibility}, IsEnabled={DefectPanel.IsEnabled}, IsHitTestVisible={DefectPanel.IsHitTestVisible}")
+                TraceLogger.Log($"DEFECT GRID Visibility={DefectButtonGrid.Visibility}, IsEnabled={DefectButtonGrid.IsEnabled}, IsHitTestVisible={DefectButtonGrid.IsHitTestVisible}")
+                TraceLogger.Log($"DEFECT GRID CHILDREN BEFORE={DefectButtonGrid.Children.Count}")
+
+                For Each opt In options
+
+                    TraceLogger.Log($"ADDING DEFECT BUTTON Text='{opt.Text}', Value='{opt.Value}'")
+
+                    Dim btn As New Button With {
+        .Content = opt.Text,
+        .Tag = opt.Value,
+        .FontSize = 30,
+        .FontWeight = FontWeights.Bold,
+        .MinHeight = 95,
+        .Margin = New Thickness(10),
+        .Padding = New Thickness(20),
+        .IsEnabled = True,
+        .IsHitTestVisible = True,
+        .Focusable = False,
+        .HorizontalAlignment = HorizontalAlignment.Stretch,
+        .VerticalAlignment = VerticalAlignment.Stretch,
+        .Background = TryCast(Application.Current.Resources("BrandPrimaryButtonBrush"), Brush),
+        .Foreground = TryCast(Application.Current.Resources("BrandPrimaryButtonTextBrush"), Brush)
+    }
+
+                    AddHandler btn.Click,
+        Sub(sender, e)
+
+            e.Handled = True
+
+            TraceLogger.Log($"DEFECT BUTTON CLICK received. epoch={myEpoch}, currentEpoch={_uiEpoch}")
+
+            HandleDefectSelection(sender, tcs, myEpoch)
+
+        End Sub
+
+                    AddHandler btn.PreviewMouseLeftButtonDown,
+        Sub(sender, e)
+
+            e.Handled = True
+
+            TraceLogger.Log($"DEFECT BUTTON MOUSE DOWN received. epoch={myEpoch}, currentEpoch={_uiEpoch}")
+
+            HandleDefectSelection(sender, tcs, myEpoch)
+
+        End Sub
+
+                    AddHandler btn.PreviewTouchDown,
+        Sub(sender, e)
+
+            e.Handled = True
+
+            TraceLogger.Log($"DEFECT BUTTON TOUCH DOWN received. epoch={myEpoch}, currentEpoch={_uiEpoch}")
+
+            HandleDefectSelection(sender, tcs, myEpoch)
+
+        End Sub
+
+                    DefectButtonGrid.Children.Add(btn)
+
+                Next
+
+                TraceLogger.Log($"DEFECT GRID CHILDREN AFTER={DefectButtonGrid.Children.Count}")
+                TraceLogger.Log("SHOW TOUCH SELECTION UI BUILD END")
+            End Sub)
+
+                Dim timeoutTask As Task = Task.Delay(TimeSpan.FromSeconds(timeoutSeconds))
+                Dim completedTask As Task = Await Task.WhenAny(tcs.Task, timeoutTask)
+
+                If completedTask Is timeoutTask Then
+                    TraceLogger.Log("SHOW TOUCH SELECTION TIMEOUT reached.")
+                Else
+                    TraceLogger.Log("SHOW TOUCH SELECTION completed by button click.")
+                End If
+
+                Await Dispatcher.InvokeAsync(
+            Sub()
+                TraceLogger.Log($"SHOW TOUCH SELECTION CLEANUP START - GridChildren={DefectButtonGrid.Children.Count}")
+
+                DefectPanel.Visibility = Visibility.Collapsed
+                DefectButtonGrid.Children.Clear()
+
+                TraceLogger.Log($"SHOW TOUCH SELECTION CLEANUP END - PanelVisibility={DefectPanel.Visibility}, GridChildren={DefectButtonGrid.Children.Count}")
+            End Sub)
+
+                If myEpoch <> _uiEpoch Then
+                    TraceLogger.Log("SHOW TOUCH SELECTION returning Nothing - epoch changed after completion.")
+                    Return Nothing
+                End If
+
+                If completedTask Is timeoutTask Then
+                    Return Nothing
+                End If
+
+                Dim result As String = Await tcs.Task
+                TraceLogger.Log($"SHOW TOUCH SELECTION RETURN='{If(result, "<NULL>")}'")
+
+                Return result
+
+            Catch ex As Exception
+                TraceLogger.Log($"SHOW TOUCH SELECTION ERROR: {ex}")
                 Return Nothing
-            End If
-
-            Return Await tcs.Task
-        End Function)
+            End Try
 
         End Function
         Private Async Sub ProcessAssetDepositAssignmentAsync()
@@ -2992,10 +3306,21 @@ Namespace SmartLockerKiosk
             Dim actionId As String = Guid.NewGuid().ToString("N")
             Dim openResult As LockerActionResult = Nothing
             Dim processException As Exception = Nothing
+            Dim authorizeResponse As LockerAuthorizeResponseDto = Nothing
 
-            TraceLogger.Log($"ASSET DEPOSIT START actionId={actionId}; epoch={myEpoch}; assetTag={_activeAssetTag}")
+            Dim lockerNumber As String = Nothing
+            Dim shouldEndSession As Boolean = False
+            Dim delayBeforeEndMs As Integer = 1500
+
+            TraceLogger.Log(
+        $"ASSET DEPOSIT START actionId={actionId}; " &
+        $"epoch={myEpoch}; " &
+        $"assetTag={_activeAssetTag}; " &
+        $"workflow={GetActiveWorkflowKey()}; " &
+        $"workflowAction={GetWorkflowAction(_activeWorkflow)}")
 
             If String.IsNullOrWhiteSpace(_activeAssetTag) Then
+
                 TraceLogger.Log("ASSET DEPOSIT ABORT missing active asset tag")
 
                 ShowPrompt("Scan an asset tag first.")
@@ -3003,18 +3328,28 @@ Namespace SmartLockerKiosk
                 SetUiEnabled(True)
                 FocusHidSink()
                 Return
+
             End If
 
             _state = ScreenState.ValidatingCredential
             SetUiEnabled(False)
             SizeSelectionPanel.Visibility = Visibility.Collapsed
 
-            Dim lockerNumber As String = Nothing
-            Dim shouldEndSession As Boolean = False
-            Dim delayBeforeEndMs As Integer = 1500
-
             Try
-                ShowPrompt("Finding available compartment...")
+
+                Dim actorId As String = GetAuthorizedActorIdForCurrentSession()
+
+                If String.IsNullOrWhiteSpace(actorId) Then
+                    Throw New InvalidOperationException("ActorId is required before asset deposit assignment.")
+                End If
+
+                TraceLogger.Log(
+            "ASSET DEPOSIT actor resolved. " &
+            "actorId=" & actorId &
+            "; courierAuthPresent=" & (_courierAuth IsNot Nothing).ToString() &
+            "; authResultPresent=" & (_authResult IsNot Nothing).ToString())
+
+                ShowPrompt("Finding available compartment.")
 
                 TraceLogger.Log("ASSET DEPOSIT releasing expired reservations")
                 ReleaseExpiredReservations()
@@ -3025,6 +3360,7 @@ Namespace SmartLockerKiosk
                 TraceLogger.Log($"ASSET DEPOSIT selected locker='{lockerNumber}'")
 
                 If String.IsNullOrWhiteSpace(lockerNumber) Then
+
                     TraceLogger.Log("ASSET DEPOSIT no compartment available")
 
                     ShowPrompt("No compartments are currently available.")
@@ -3032,27 +3368,109 @@ Namespace SmartLockerKiosk
                     delayBeforeEndMs = 3000
 
                 Else
-                    ShowPrompt($"Reserving compartment {lockerNumber}...")
 
-                    TraceLogger.Log($"ASSET DEPOSIT reserving locker={lockerNumber}; asset={_activeAssetTag}; actionId={actionId}")
+                    ShowPrompt($"Reserving compartment {lockerNumber}.")
+
+                    TraceLogger.Log(
+                $"ASSET DEPOSIT reserving locker={lockerNumber}; " &
+                $"asset={_activeAssetTag}; " &
+                $"actionId={actionId}; " &
+                $"actorId={actorId}")
 
                     ReserveLockerForDelivery(
                 lockerNumber:=lockerNumber,
                 workOrderNumber:=_activeAssetTag,
                 correlationId:=actionId)
 
-                    ShowPrompt($"Opening compartment {lockerNumber}...")
+                    ShowPrompt($"Authorizing compartment {lockerNumber}.")
 
-                    TraceLogger.Log($"ASSET DEPOSIT opening locker={lockerNumber}; asset={_activeAssetTag}; actionId={actionId}")
+                    TraceLogger.Log(
+                $"ASSET DEPOSIT authorizing backend locker action; " &
+                $"locker={lockerNumber}; " &
+                $"asset={_activeAssetTag}; " &
+                $"localActionId={actionId}; " &
+                $"actorId={actorId}")
+
+                    authorizeResponse =
+                Await AuthorizeLockerOpenActionForAssetAsync(
+                    assetTag:=_activeAssetTag,
+                    lockerNumber:=lockerNumber,
+                    correlationId:=actionId,
+                    sessionUserId:=actorId,
+                    ct:=CancellationToken.None)
+
+                    If myEpoch <> _uiEpoch Then
+                        TraceLogger.Log("ASSET DEPOSIT ABORT epoch changed after locker authorize")
+                        Return
+                    End If
+
+                    If authorizeResponse Is Nothing Then
+
+                        ReleaseLockerReservation(lockerNumber, "AssetLockerAuthorizeEmptyResponse")
+
+                        Throw New InvalidOperationException(
+                    "Backend locker authorization returned an empty response.")
+
+                    End If
+
+                    If authorizeResponse.authorization IsNot Nothing AndAlso
+               Not authorizeResponse.authorization.isAuthorized Then
+
+                        TraceLogger.Log(
+                    $"ASSET DEPOSIT backend locker authorization denied; " &
+                    $"locker={lockerNumber}; " &
+                    $"asset={_activeAssetTag}; " &
+                    $"localActionId={actionId}; " &
+                    $"actorId={actorId}")
+
+                        ReleaseLockerReservation(lockerNumber, "AssetLockerAuthorizeDenied")
+
+                        ShowPrompt($"Asset deposit was not authorized for compartment {lockerNumber}.")
+                        shouldEndSession = True
+                        delayBeforeEndMs = 3000
+                        Return
+
+                    End If
+
+                    If String.IsNullOrWhiteSpace(authorizeResponse.transactionId) OrElse
+               String.IsNullOrWhiteSpace(authorizeResponse.commandId) Then
+
+                        ReleaseLockerReservation(lockerNumber, "AssetLockerAuthorizeMissingTransaction")
+
+                        Throw New InvalidOperationException(
+                    "Backend locker authorization did not return the required transactionId/commandId.")
+
+                    End If
+
+                    TraceLogger.Log(
+                $"ASSET DEPOSIT backend locker action authorized; " &
+                $"locker={lockerNumber}; " &
+                $"asset={_activeAssetTag}; " &
+                $"localActionId={actionId}; " &
+                $"actorId={actorId}; " &
+                $"backendTransactionId={authorizeResponse.transactionId}; " &
+                $"backendCommandId={authorizeResponse.commandId}")
+
+                    ShowPrompt($"Opening compartment {lockerNumber}.")
+
+                    TraceLogger.Log(
+                $"ASSET DEPOSIT opening locker={lockerNumber}; " &
+                $"asset={_activeAssetTag}; " &
+                $"actionId={actionId}")
 
                     openResult =
-                Await TryOpenLockerWithJournalAsync(actionId, _activeAssetTag, lockerNumber)
+                Await TryOpenLockerWithJournalAsync(
+                    actionId,
+                    _activeAssetTag,
+                    lockerNumber)
 
-                    Dim opened As Boolean = openResult IsNot Nothing AndAlso openResult.Success
+                    Dim opened As Boolean =
+                openResult IsNot Nothing AndAlso openResult.Success
 
                     TraceLogger.Log($"ASSET DEPOSIT open result={opened}; locker={lockerNumber}")
 
                     If Not opened Then
+
                         TraceLogger.Log($"ASSET DEPOSIT open failed; releasing reservation locker={lockerNumber}")
 
                         ReleaseLockerReservation(lockerNumber, "AssetOpenFailed")
@@ -3061,6 +3479,7 @@ Namespace SmartLockerKiosk
                         delayBeforeEndMs = 3000
 
                     Else
+
                         ShowPrompt($"Compartment {lockerNumber} opened. Place asset inside and close the door.")
 
                         TraceLogger.Log($"ASSET DEPOSIT waiting for door close locker={lockerNumber}")
@@ -3071,14 +3490,19 @@ Namespace SmartLockerKiosk
                         timeoutMs:=120000,
                         myEpoch:=myEpoch)
 
-                        TraceLogger.Log($"ASSET DEPOSIT door close result={closedOk}; locker={lockerNumber}; currentEpoch={_uiEpoch}; myEpoch={myEpoch}")
+                        TraceLogger.Log(
+                    $"ASSET DEPOSIT door close result={closedOk}; " &
+                    $"locker={lockerNumber}; currentEpoch={_uiEpoch}; myEpoch={myEpoch}")
 
                         If myEpoch <> _uiEpoch Then
+
                             TraceLogger.Log("ASSET DEPOSIT ABORT epoch changed after door close wait")
                             Return
+
                         End If
 
                         If Not closedOk Then
+
                             TraceLogger.Log($"ASSET DEPOSIT door close timeout locker={lockerNumber}")
 
                             ShowPrompt($"Please close compartment {lockerNumber} to continue.")
@@ -3086,21 +3510,39 @@ Namespace SmartLockerKiosk
                             delayBeforeEndMs = 3000
 
                         Else
-                            TraceLogger.Log($"ASSET DEPOSIT completing asset deposit asset={_activeAssetTag}; locker={lockerNumber}; actionId={actionId}")
 
-                            Await CompleteAssetDepositAsync(_activeAssetTag, lockerNumber, actionId, If(openResult Is Nothing, CType(Nothing, Integer?), openResult.JournalId))
+                            TraceLogger.Log(
+                        $"ASSET DEPOSIT completing asset deposit asset={_activeAssetTag}; " &
+                        $"locker={lockerNumber}; localActionId={actionId}; " &
+                        $"actorId={actorId}; " &
+                        $"backendTransactionId={authorizeResponse.transactionId}")
 
-                            TraceLogger.Log($"ASSET DEPOSIT CompleteAssetDepositAsync returned asset={_activeAssetTag}; locker={lockerNumber}; actionId={actionId}")
+                            Await CompleteAssetDepositAsync(
+                        assetTag:=_activeAssetTag,
+                        lockerNumber:=lockerNumber,
+                        actionId:=actionId,
+                        authorizeResponse:=authorizeResponse,
+                        journalId:=If(openResult Is Nothing,
+                                      CType(Nothing, Integer?),
+                                      openResult.JournalId))
+
+                            TraceLogger.Log(
+                        $"ASSET DEPOSIT CompleteAssetDepositAsync returned asset={_activeAssetTag}; " &
+                        $"locker={lockerNumber}; actionId={actionId}")
 
                             ShowPrompt("Asset deposit complete. Thank you.")
 
                             shouldEndSession = True
                             delayBeforeEndMs = 1500
+
                         End If
+
                     End If
+
                 End If
 
             Catch ex As Exception
+
                 processException = ex
 
             End Try
@@ -3108,11 +3550,28 @@ Namespace SmartLockerKiosk
             If processException IsNot Nothing Then
 
                 If myEpoch <> _uiEpoch Then
-                    TraceLogger.LogExceptionDeep("ASSET_DEPOSIT_EXCEPTION_AFTER_EPOCH_CHANGE", processException)
+
+                    TraceLogger.LogExceptionDeep(
+                "ASSET_DEPOSIT_EXCEPTION_AFTER_EPOCH_CHANGE",
+                processException)
+
                     Return
+
                 End If
 
                 TraceLogger.LogExceptionDeep("ASSET_DEPOSIT_FAIL", processException)
+
+                If Not String.IsNullOrWhiteSpace(lockerNumber) Then
+
+                    Try
+                        ReleaseLockerReservation(lockerNumber, "AssetDepositException")
+                    Catch releaseEx As Exception
+                        TraceLogger.LogExceptionDeep(
+                    "ASSET_DEPOSIT_RELEASE_RESERVATION_FAILED",
+                    releaseEx)
+                    End Try
+
+                End If
 
                 If openResult IsNot Nothing Then
 
@@ -3125,7 +3584,9 @@ Namespace SmartLockerKiosk
                         processException.Message)
 
                     Catch updateEx As Exception
-                        TraceLogger.LogExceptionDeep("ASSET_DEPOSIT_JOURNAL_UPDATE_FAILED", updateEx)
+                        TraceLogger.LogExceptionDeep(
+                    "ASSET_DEPOSIT_JOURNAL_UPDATE_FAILED",
+                    updateEx)
                     End Try
 
                 End If
@@ -3137,26 +3598,28 @@ Namespace SmartLockerKiosk
             End If
 
             If myEpoch = _uiEpoch Then
+
                 TraceLogger.Log("ASSET DEPOSIT restoring UI enabled/focus")
                 SetUiEnabled(True)
                 FocusHidSink()
+
             Else
-                TraceLogger.Log($"ASSET DEPOSIT skipped UI restore; epoch changed current={_uiEpoch}; mine={myEpoch}")
+
+                TraceLogger.Log(
+            $"ASSET DEPOSIT skipped UI restore; epoch changed current={_uiEpoch}; mine={myEpoch}")
+
             End If
 
             If myEpoch = _uiEpoch AndAlso shouldEndSession Then
+
                 TraceLogger.Log($"ASSET DEPOSIT ending session after delay={delayBeforeEndMs}ms")
 
                 Await Task.Delay(delayBeforeEndMs)
 
                 If myEpoch = _uiEpoch Then
-                    TraceLogger.Log("ASSET DEPOSIT calling EndDeliverySession")
-                    EndDeliverySession()
-                Else
-                    TraceLogger.Log($"ASSET DEPOSIT skipped EndDeliverySession; epoch changed current={_uiEpoch}; mine={myEpoch}")
+                    ResetToAwaitWorkflowChoice()
                 End If
-            Else
-                TraceLogger.Log($"ASSET DEPOSIT not ending session; shouldEndSession={shouldEndSession}; currentEpoch={_uiEpoch}; myEpoch={myEpoch}")
+
             End If
 
         End Sub
@@ -3321,6 +3784,111 @@ Namespace SmartLockerKiosk
             Return Nothing
 
         End Function
+        Private Sub SelectDefectOption(
+    sender As Object,
+    tcs As TaskCompletionSource(Of String),
+    myEpoch As Integer)
+
+            TraceLogger.Log($"DEFECT OPTION INPUT received. epoch={myEpoch}, currentEpoch={_uiEpoch}")
+
+            If myEpoch <> _uiEpoch Then
+                tcs.TrySetResult(Nothing)
+                Return
+            End If
+
+            Dim selectedButton = TryCast(sender, Button)
+
+            If selectedButton Is Nothing OrElse selectedButton.Tag Is Nothing Then
+                TraceLogger.Log("DEFECT OPTION INPUT failed - sender/tag missing.")
+                tcs.TrySetResult(Nothing)
+                Return
+            End If
+
+            Dim value As String = CStr(selectedButton.Tag)
+
+            TraceLogger.Log("DEFECT OPTION SELECTED: " & value)
+
+            tcs.TrySetResult(value)
+
+        End Sub
+        Private Sub HandleDefectSelection(
+    sender As Object,
+    tcs As TaskCompletionSource(Of String),
+    myEpoch As Integer)
+
+            Try
+
+                If myEpoch <> _uiEpoch Then
+
+                    TraceLogger.Log("DEFECT SELECTION ignored - epoch changed.")
+
+                    tcs.TrySetResult(Nothing)
+                    Return
+
+                End If
+
+                Dim selectedButton = TryCast(sender, Button)
+
+                If selectedButton Is Nothing Then
+
+                    TraceLogger.Log("DEFECT SELECTION failed - sender not button.")
+
+                    tcs.TrySetResult(Nothing)
+                    Return
+
+                End If
+
+                If selectedButton.Tag Is Nothing Then
+
+                    TraceLogger.Log("DEFECT SELECTION failed - button tag missing.")
+
+                    tcs.TrySetResult(Nothing)
+                    Return
+
+                End If
+
+                Dim value As String = CStr(selectedButton.Tag)
+
+                TraceLogger.Log($"DEFECT SELECTION ACCEPTED value='{value}'")
+
+                tcs.TrySetResult(value)
+
+            Catch ex As Exception
+
+                TraceLogger.Log("HANDLE DEFECT SELECTION ERROR: " & ex.ToString())
+
+                tcs.TrySetResult(Nothing)
+
+            End Try
+
+        End Sub
+        Private Function GetAuthorizedActorIdForCurrentSession() As String
+
+            Dim actorId As String = ""
+
+            If _courierAuth IsNot Nothing Then
+
+                actorId = If(_courierAuth.ActorID, "").Trim()
+
+                If String.IsNullOrWhiteSpace(actorId) Then
+                    actorId = If(_courierAuth.UserId, "").Trim()
+                End If
+
+            End If
+
+            If String.IsNullOrWhiteSpace(actorId) AndAlso _authResult IsNot Nothing Then
+
+                actorId = If(_authResult.ActorID, "").Trim()
+
+                If String.IsNullOrWhiteSpace(actorId) Then
+                    actorId = If(_authResult.UserId, "").Trim()
+                End If
+
+            End If
+
+            Return If(actorId, "").Trim()
+
+        End Function
 #End Region
 
 #Region "Shared locker interaction helpers"
@@ -3462,10 +4030,13 @@ Namespace SmartLockerKiosk
             End Using
 
         End Function
-        Private Async Function CompleteAssetDepositAsync(assetTag As String,
-                                                 lockerNumber As String,
-                                                 actionId As String,
-                                                 Optional journalId As Integer? = Nothing) As Task
+        Private Async Function CompleteAssetDepositAsync(
+    assetTag As String,
+    lockerNumber As String,
+    actionId As String,
+    authorizeResponse As LockerAuthorizeResponseDto,
+    Optional journalId As Integer? = Nothing
+) As Task
 
             Dim cleanAssetTag As String = If(assetTag, "").Trim()
             Dim cleanLockerNumber As String = If(lockerNumber, "").Trim()
@@ -3481,6 +4052,18 @@ Namespace SmartLockerKiosk
 
             If String.IsNullOrWhiteSpace(cleanActionId) Then
                 cleanActionId = Guid.NewGuid().ToString("N")
+            End If
+
+            If authorizeResponse Is Nothing Then
+                Throw New InvalidOperationException("Locker authorization response is missing.")
+            End If
+
+            If String.IsNullOrWhiteSpace(authorizeResponse.transactionId) Then
+                Throw New InvalidOperationException("Backend locker authorization did not return transactionId.")
+            End If
+
+            If String.IsNullOrWhiteSpace(authorizeResponse.commandId) Then
+                Throw New InvalidOperationException("Backend locker authorization did not return commandId.")
             End If
 
             Dim actorId As String = ""
@@ -3500,8 +4083,6 @@ Namespace SmartLockerKiosk
             If String.IsNullOrWhiteSpace(deviceType) Then
                 deviceType = ResolveDeviceTypeFromAsset(cleanAssetTag)
             End If
-
-            deviceType = If(deviceType, "").Trim()
 
             If String.IsNullOrWhiteSpace(deviceType) Then
                 deviceType = "UNKNOWN"
@@ -3548,7 +4129,6 @@ Namespace SmartLockerKiosk
 
                 Try
                     db.SaveChanges()
-
                 Catch ex As Exception
                     TraceExceptionDeep("ASSET_COMPLETE_DB_SAVE_FAILED", ex)
                     Throw
@@ -3558,17 +4138,20 @@ Namespace SmartLockerKiosk
 
             TraceLogger.Log($"ASSET COMPLETE local DB update saved asset={cleanAssetTag}; locker={cleanLockerNumber}")
 
+            Dim actionService As New LockerActionService()
+
             If journalId.HasValue Then
-                Await New LockerActionService().
-            MarkDoorClosedAndLocalStateUpdatedAsync(journalId.Value)
+                Await actionService.MarkDoorClosedAndLocalStateUpdatedAsync(journalId.Value)
             End If
 
             Dim ack As New LockerAckRequestDto With {
-        .transactionId = cleanActionId,
-        .commandId = cleanActionId,
+        .transactionId = authorizeResponse.transactionId.Trim(),
+        .commandId = authorizeResponse.commandId.Trim(),
         .correlationId = cleanActionId,
         .ackStatus = "completed",
         .adapterName = AppSettings.AdapterName,
+        .hardwareEventCode = "LOCKER_ASSET_DEPOSIT_COMPLETE",
+        .message = $"Asset {cleanAssetTag} deposited in locker {cleanLockerNumber}.",
         .compartmentIds = New List(Of String) From {
             cleanLockerNumber
         }
@@ -3583,58 +4166,73 @@ Namespace SmartLockerKiosk
             End Try
 
             If journalId.HasValue Then
-                Await New LockerActionService().
-            MarkAckPendingAsync(journalId.Value, ackJson)
+                Await actionService.MarkAckPendingAsync(journalId.Value, ackJson)
             End If
 
             Dim bearerToken As String = ""
 
-            If _courierAuth IsNot Nothing AndAlso
-       Not String.IsNullOrWhiteSpace(_courierAuth.SessionToken) Then
-
+            If _courierAuth IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(_courierAuth.SessionToken) Then
                 bearerToken = _courierAuth.SessionToken.Trim()
-
-            ElseIf _authResult IsNot Nothing AndAlso
-           Not String.IsNullOrWhiteSpace(_authResult.SessionToken) Then
-
+            ElseIf _authResult IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(_authResult.SessionToken) Then
                 bearerToken = _authResult.SessionToken.Trim()
             End If
 
-            Dim ackException As Exception = Nothing
+            Dim ackFailureException As Exception = Nothing
 
             Try
-                TraceLogger.Log($"ASSET COMPLETE sending locker ACK; tokenPresent={Not String.IsNullOrWhiteSpace(bearerToken)}; actionId={cleanActionId}")
+
+                TraceLogger.Log(
+            $"ASSET COMPLETE sending locker ACK; " &
+            $"tokenPresent={Not String.IsNullOrWhiteSpace(bearerToken)}; " &
+            $"localActionId={cleanActionId}; " &
+            $"backendTransactionId={ack.transactionId}; " &
+            $"backendCommandId={ack.commandId}")
 
                 Await _backend.AckLockerActionAsync(
             dto:=ack,
             bearerToken:=bearerToken,
             ct:=CancellationToken.None)
 
-                TraceLogger.Log($"ASSET COMPLETE locker ACK returned; actionId={cleanActionId}")
-
-            Catch ex As Exception
-                ackException = ex
-            End Try
-
-            If ackException IsNot Nothing Then
-
-                TraceExceptionDeep("ASSET_COMPLETE_ACK_FAILED_NONFATAL", ackException)
-                TraceLogger.Log("ASSET COMPLETE local deposit remains complete even though backend ACK failed.")
+                TraceLogger.Log(
+            $"ASSET COMPLETE locker ACK succeeded; " &
+            $"localActionId={cleanActionId}; " &
+            $"backendTransactionId={ack.transactionId}")
 
                 If journalId.HasValue Then
-                    Await New LockerActionService().
-                MarkAckFailedAsync(
-                    journalId.Value,
-                    ackException.Message)
+                    Await actionService.MarkAckSucceededAsync(journalId.Value)
+                End If
+
+            Catch ex As Exception
+                ackFailureException = ex
+            End Try
+
+            If ackFailureException IsNot Nothing Then
+
+                TraceExceptionDeep("ASSET_COMPLETE_ACK_FAILED_NONFATAL", ackFailureException)
+
+                TraceLogger.Log(
+            $"ASSET COMPLETE local deposit remains complete but backend ACK failed; " &
+            $"asset={cleanAssetTag}; locker={cleanLockerNumber}; " &
+            $"localActionId={cleanActionId}; " &
+            $"backendTransactionId={ack.transactionId}; " &
+            $"error={ackFailureException.Message}")
+
+                If journalId.HasValue Then
+
+                    Await actionService.MarkAckFailedAsync(
+                journalId.Value,
+                ackFailureException.Message)
+
+                    Await actionService.UpdateJournalStateAsync(
+                journalId.Value,
+                LockerTransactionState.NeedsReconciliation,
+                LockerAckStatus.Failed,
+                ackFailureException.Message)
+
                 End If
 
                 Return
 
-            End If
-
-            If journalId.HasValue Then
-                Await New LockerActionService().
-            MarkAckSucceededAsync(journalId.Value)
             End If
 
         End Function
@@ -3842,42 +4440,51 @@ Namespace SmartLockerKiosk
     ct As CancellationToken
 ) As Task(Of LockerAuthorizeResponseDto)
 
-            Dim wo = (If(workOrderNumber, "")).Trim()
-            Dim ln = (If(lockerNumber, "")).Trim()
-            Dim userId = (If(sessionUserId, "")).Trim()
-            Dim corr = (If(correlationId, "")).Trim()
+            Dim wo As String = (If(workOrderNumber, "")).Trim()
+            Dim ln As String = (If(lockerNumber, "")).Trim()
+            Dim actorId As String = (If(sessionUserId, "")).Trim()
+            Dim corr As String = (If(correlationId, "")).Trim()
 
             If wo.Length = 0 Then Throw New ArgumentException("workOrderNumber is required.", NameOf(workOrderNumber))
             If ln.Length = 0 Then Throw New ArgumentException("lockerNumber is required.", NameOf(lockerNumber))
-            If userId.Length = 0 Then Throw New InvalidOperationException("No authorized session user is available.")
+            If actorId.Length = 0 Then Throw New InvalidOperationException("ActorId is required before authorizing work-order locker action.")
             If corr.Length = 0 Then corr = Guid.NewGuid().ToString("N")
 
             Using db = DatabaseBootstrapper.BuildDbContext()
 
                 Dim locker = db.Lockers.
-                    AsNoTracking().
-                    SingleOrDefault(Function(l) l.LockerNumber = ln)
+            AsNoTracking().
+            SingleOrDefault(Function(l) l.LockerNumber = ln)
 
                 If locker Is Nothing Then
                     Throw New InvalidOperationException($"Locker {ln} was not found.")
                 End If
 
                 Dim dto As New LockerAuthorizeRequestDto With {
-                    .requestId = Guid.NewGuid().ToString("N"),
-                    .correlationId = corr,
-                    .requestedBy = userId,
-                    .requestedByType = "user",
-                    .siteCode = If(String.IsNullOrWhiteSpace(AppSettings.LocationId), "UNKNOWN-SITE", AppSettings.LocationId),
-                    .lockerBankId = $"BANK-{locker.Branch}",
-                    .lockerId = locker.LockerNumber,
-                    .doorId = $"D{locker.RelayId}",
-                    .actionType = "open_door",
-                    .requestedAtUtc = DateTime.UtcNow.ToString("o"),
-                    .reasonCode = "WORK_ORDER",
-                    .metadata = New LockerAuthorizeMetadataDto With {
-                        .workOrderId = wo
-                    }
-                }
+            .requestId = Guid.NewGuid().ToString("N"),
+            .correlationId = corr,
+            .requestedBy = actorId,
+            .actorId = actorId,
+            .requestedByType = "user",
+            .siteCode = If(String.IsNullOrWhiteSpace(AppSettings.LocationId), "UNKNOWN-SITE", AppSettings.LocationId),
+            .lockerBankId = $"BANK-{locker.Branch}",
+            .lockerId = locker.LockerNumber,
+            .doorId = $"D{locker.RelayId}",
+            .actionType = "open_door",
+            .requestedAtUtc = DateTime.UtcNow.ToString("o"),
+            .reasonCode = "WORK_ORDER",
+            .metadata = New LockerAuthorizeMetadataDto With {
+                .workOrderId = wo
+            }
+        }
+
+                TraceLogger.Log(
+            "WORKORDER LOCKER AUTHORIZE REQUEST: " &
+            "actorId=" & actorId &
+            "; requestedBy=" & actorId &
+            "; workOrder=" & wo &
+            "; locker=" & ln &
+            "; correlationId=" & corr)
 
                 Return Await _backend.AuthorizeLockerActionAsync(dto, _sessionToken, ct)
 

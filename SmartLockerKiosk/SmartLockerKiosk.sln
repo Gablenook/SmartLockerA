@@ -7,23 +7,62 @@ Project("{F184B08F-C81C-45F6-A57F-5ABD9991F28F}") = "SmartLockerKiosk", "SmartLo
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Keypad", "..\Keypad\Keypad.csproj", "{C112F57E-A0CF-4CE7-A8FE-84C9F4537C0E}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "WorkflowTests", "WorkflowTests", "{65F78F1E-BDFD-C569-8BE3-B5E678BDE073}"
+EndProject
+Project("{F184B08F-C81C-45F6-A57F-5ABD9991F28F}") = "SmartLockerKiosk.WorkflowTests", "WorkflowTests\SmartLockerKiosk.WorkflowTests.vbproj", "{BD5334FF-ADE7-4D1E-9009-870FC2D4967B}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
+		Debug|x64 = Debug|x64
+		Debug|x86 = Debug|x86
 		Release|Any CPU = Release|Any CPU
+		Release|x64 = Release|x64
+		Release|x86 = Release|x86
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
 		{E498CC6D-FB82-46B5-B63C-5C1D2D1DE316}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{E498CC6D-FB82-46B5-B63C-5C1D2D1DE316}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E498CC6D-FB82-46B5-B63C-5C1D2D1DE316}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{E498CC6D-FB82-46B5-B63C-5C1D2D1DE316}.Debug|x64.Build.0 = Debug|Any CPU
+		{E498CC6D-FB82-46B5-B63C-5C1D2D1DE316}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{E498CC6D-FB82-46B5-B63C-5C1D2D1DE316}.Debug|x86.Build.0 = Debug|Any CPU
 		{E498CC6D-FB82-46B5-B63C-5C1D2D1DE316}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{E498CC6D-FB82-46B5-B63C-5C1D2D1DE316}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E498CC6D-FB82-46B5-B63C-5C1D2D1DE316}.Release|x64.ActiveCfg = Release|Any CPU
+		{E498CC6D-FB82-46B5-B63C-5C1D2D1DE316}.Release|x64.Build.0 = Release|Any CPU
+		{E498CC6D-FB82-46B5-B63C-5C1D2D1DE316}.Release|x86.ActiveCfg = Release|Any CPU
+		{E498CC6D-FB82-46B5-B63C-5C1D2D1DE316}.Release|x86.Build.0 = Release|Any CPU
 		{C112F57E-A0CF-4CE7-A8FE-84C9F4537C0E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{C112F57E-A0CF-4CE7-A8FE-84C9F4537C0E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C112F57E-A0CF-4CE7-A8FE-84C9F4537C0E}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{C112F57E-A0CF-4CE7-A8FE-84C9F4537C0E}.Debug|x64.Build.0 = Debug|Any CPU
+		{C112F57E-A0CF-4CE7-A8FE-84C9F4537C0E}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{C112F57E-A0CF-4CE7-A8FE-84C9F4537C0E}.Debug|x86.Build.0 = Debug|Any CPU
 		{C112F57E-A0CF-4CE7-A8FE-84C9F4537C0E}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{C112F57E-A0CF-4CE7-A8FE-84C9F4537C0E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C112F57E-A0CF-4CE7-A8FE-84C9F4537C0E}.Release|x64.ActiveCfg = Release|Any CPU
+		{C112F57E-A0CF-4CE7-A8FE-84C9F4537C0E}.Release|x64.Build.0 = Release|Any CPU
+		{C112F57E-A0CF-4CE7-A8FE-84C9F4537C0E}.Release|x86.ActiveCfg = Release|Any CPU
+		{C112F57E-A0CF-4CE7-A8FE-84C9F4537C0E}.Release|x86.Build.0 = Release|Any CPU
+		{BD5334FF-ADE7-4D1E-9009-870FC2D4967B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BD5334FF-ADE7-4D1E-9009-870FC2D4967B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BD5334FF-ADE7-4D1E-9009-870FC2D4967B}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{BD5334FF-ADE7-4D1E-9009-870FC2D4967B}.Debug|x64.Build.0 = Debug|Any CPU
+		{BD5334FF-ADE7-4D1E-9009-870FC2D4967B}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{BD5334FF-ADE7-4D1E-9009-870FC2D4967B}.Debug|x86.Build.0 = Debug|Any CPU
+		{BD5334FF-ADE7-4D1E-9009-870FC2D4967B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BD5334FF-ADE7-4D1E-9009-870FC2D4967B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{BD5334FF-ADE7-4D1E-9009-870FC2D4967B}.Release|x64.ActiveCfg = Release|Any CPU
+		{BD5334FF-ADE7-4D1E-9009-870FC2D4967B}.Release|x64.Build.0 = Release|Any CPU
+		{BD5334FF-ADE7-4D1E-9009-870FC2D4967B}.Release|x86.ActiveCfg = Release|Any CPU
+		{BD5334FF-ADE7-4D1E-9009-870FC2D4967B}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{BD5334FF-ADE7-4D1E-9009-870FC2D4967B} = {65F78F1E-BDFD-C569-8BE3-B5E678BDE073}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {4F3EE9DB-403F-47D8-B4B7-490E70145E56}

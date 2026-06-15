@@ -51,6 +51,34 @@ Partial Public Class LockerStatusAdmin
     Private Sub Close_Click(sender As Object, e As RoutedEventArgs)
         Me.Close()
     End Sub
+    Private Async Function EnsureNoUnresolvedTransactionsForLockerAsync(
+        row As LockerStatusRow,
+        actionName As String
+    ) As Task(Of Boolean)
+
+        If row Is Nothing OrElse String.IsNullOrWhiteSpace(row.LockerNumber) Then
+            Return True
+        End If
+
+        Dim recovery As New LockerTransactionRecoveryService()
+        Dim hasOpenTransaction = Await recovery.HasIncompleteTransactionForLockerAsync(row.LockerNumber)
+
+        If Not hasOpenTransaction Then
+            Return True
+        End If
+
+        MessageBox.Show(
+            $"Locker {row.LockerNumber} has an unresolved transaction journal." & Environment.NewLine &
+            Environment.NewLine &
+            $"{actionName} is blocked until Transaction Recovery reviews or resolves the journal.",
+            "Unresolved Transaction",
+            MessageBoxButton.OK,
+            MessageBoxImage.Warning)
+
+        StatusText.Text = $"Blocked {actionName} for locker {row.LockerNumber}: unresolved transaction journal."
+        Return False
+
+    End Function
     Private Async Sub ScanPorts_Click(sender As Object, e As RoutedEventArgs)
         If _isScanning Then Return
 
@@ -302,6 +330,8 @@ Partial Public Class LockerStatusAdmin
         If confirm <> MessageBoxResult.Yes Then Return
 
         Try
+            If Not Await EnsureNoUnresolvedTransactionsForLockerAsync(selected, "Reset Locker") Then Return
+
             SetUiBusy(True, $"Resetting locker {selected.LockerNumber}...")
 
             Dim result = Await ResetLockerForTestingAsync(selected)
@@ -419,6 +449,8 @@ Partial Public Class LockerStatusAdmin
         If confirm <> MessageBoxResult.Yes Then Return
 
         Try
+            If Not Await EnsureNoUnresolvedTransactionsForLockerAsync(selected, "Open Locker") Then Return
+
             SetUiBusy(True, $"Opening locker {selected.LockerNumber}...")
 
             Dim result = Await OpenLockerForAdminAsync(selected)
@@ -542,6 +574,8 @@ Partial Public Class LockerStatusAdmin
         If confirm <> MessageBoxResult.Yes Then Return
 
         Try
+            If Not Await EnsureNoUnresolvedTransactionsForLockerAsync(selected, "Clear Defective") Then Return
+
             SetUiBusy(True, $"Clearing defective hold for locker {selected.LockerNumber}...")
 
             Dim result = Await ClearDefectiveHoldForLockerAsync(selected)
@@ -649,6 +683,8 @@ Partial Public Class LockerStatusAdmin
         If confirm <> MessageBoxResult.Yes Then Return
 
         Try
+            If Not Await EnsureNoUnresolvedTransactionsForLockerAsync(selected, "Mark Defective") Then Return
+
             SetUiBusy(True, $"Marking locker {selected.LockerNumber} defective...")
 
             Dim result = Await MarkDefectiveHoldForLockerAsync(selected)
@@ -745,6 +781,8 @@ Partial Public Class LockerStatusAdmin
         End If
 
         Try
+            If Not Await EnsureNoUnresolvedTransactionsForLockerAsync(row, "Save Locker Status") Then Return
+
             Dim result = Await SaveAdminLockerStatusChangeAsync(row)
 
             If result IsNot Nothing AndAlso result.Success Then

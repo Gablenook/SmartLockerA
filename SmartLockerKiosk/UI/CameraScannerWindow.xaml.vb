@@ -29,6 +29,7 @@ Namespace SmartLockerKiosk
         ' Class-level (top of CameraScannerWindow)
         Private ReadOnly zxingOptions As New ZXing.Common.DecodingOptions With {
     .TryHarder = True,
+    .TryInverted = True,
     .PossibleFormats = New List(Of ZXing.BarcodeFormat) From {
         ZXing.BarcodeFormat.CODE_128,
         ZXing.BarcodeFormat.CODE_39,
@@ -40,7 +41,7 @@ Namespace SmartLockerKiosk
 }
         Private ReadOnly zxingReader As New ZXing.Windows.Compatibility.BarcodeReader() With {
     .AutoRotate = True,
-    .TryInverted = True
+    .Options = zxingOptions
 }
 
 

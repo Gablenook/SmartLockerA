@@ -78,6 +78,7 @@
         ' UI configuration
         ' =========================
         Public Shared Property PasscodeLength As Integer = 6
+        Public Shared Property WorkflowInactivityTimeoutSeconds As Integer = 90
         Public Shared Property SelectedStyle As String = ""
         Public Shared Property SiteCode As String = ""
         Public Shared Property ClientCode As String = ""

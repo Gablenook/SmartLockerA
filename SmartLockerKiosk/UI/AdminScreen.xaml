@@ -207,6 +207,10 @@
                                         Style="{StaticResource PrimaryAdminButton}"
                                         Click="LockerStatus_Click"/>
 
+                                <Button Content="Transaction Recovery"
+                                        Style="{StaticResource PrimaryAdminButton}"
+                                        Click="TransactionRecovery_Click"/>
+
                                 <Button Content="Controller Setup"
                                         Style="{StaticResource PrimaryAdminButton}"
                                         Click="ControllerSetup_Click"/>

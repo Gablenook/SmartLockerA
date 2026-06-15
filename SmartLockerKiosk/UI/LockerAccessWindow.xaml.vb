@@ -3,7 +3,6 @@ Imports System.ComponentModel
 Imports System.Net
 Imports System.Net.Http
 Imports System.Net.Http.Headers
-Imports System.Net.Http.Jsona
 Imports System.Runtime.InteropServices
 Imports System.Text
 Imports System.Text.Json
@@ -51,6 +50,13 @@ Namespace SmartLockerKiosk
         Private ReadOnly _backend As IOperationsBackendService
         Private _deliverAnotherTcs As TaskCompletionSource(Of Boolean?) = Nothing
         Private _deliverAnotherTimeoutCts As System.Threading.CancellationTokenSource = Nothing
+        Private _touchSelectionTcs As TaskCompletionSource(Of String) = Nothing
+        Private _returnToStartRequested As Boolean = False
+        Private _workflowCancellation As CancellationTokenSource = Nothing
+        Private _inactivityTimer As Threading.DispatcherTimer = Nothing
+        Private _lastUserActivityUtc As DateTime = DateTime.UtcNow
+        Private _lockerDoorCycleActive As Boolean = False
+        Private _lastDoorCycleReturnRequestUtc As DateTime = DateTime.MinValue
 
         Private ReadOnly _barcodeScanService As BarcodeScanService
 
@@ -70,6 +76,7 @@ Namespace SmartLockerKiosk
     New Dictionary(Of String, ScanValidationProfile)(StringComparer.OrdinalIgnoreCase)
         Private _workflowDefinitions As Dictionary(Of String, WorkflowDefinition) =
     New Dictionary(Of String, WorkflowDefinition)(StringComparer.OrdinalIgnoreCase)
+        Private _lastCredentialKey As String = ""
 
 #Region "Initialization and Configuration Loading"
         Public Sub New(lockerController As LockerControllerService)
@@ -548,81 +555,7 @@ $"Action={wf.WorkflowAction}")
 
         End Function
         Private Sub ValidateWorkflowConfiguration(config As KioskWorkflowConfiguration)
-
-            If config Is Nothing Then
-                Throw New InvalidOperationException("Workflow configuration is missing.")
-            End If
-
-            If config.EnabledWorkflows Is Nothing OrElse config.EnabledWorkflows.Count = 0 Then
-                Throw New InvalidOperationException("Workflow configuration does not contain any enabled workflows.")
-            End If
-
-            For Each workflow In config.EnabledWorkflows
-
-                If workflow Is Nothing Then Continue For
-
-                If String.IsNullOrWhiteSpace(workflow.WorkflowKey) Then
-                    Throw New InvalidOperationException("A workflow is missing WorkflowKey.")
-                End If
-
-                If String.IsNullOrWhiteSpace(workflow.Mode) Then
-                    Throw New InvalidOperationException($"Workflow '{workflow.WorkflowKey}' is missing Mode.")
-                End If
-
-                If String.IsNullOrWhiteSpace(workflow.WorkflowAction) Then
-                    Throw New InvalidOperationException($"Workflow '{workflow.WorkflowKey}' is missing WorkflowAction.")
-                End If
-
-                If workflow.Steps Is Nothing OrElse workflow.Steps.Count = 0 Then
-                    Throw New InvalidOperationException($"Workflow '{workflow.WorkflowKey}' has no steps.")
-                End If
-
-                For Each stepDef In workflow.Steps
-
-                    If stepDef Is Nothing Then Continue For
-
-                    If String.IsNullOrWhiteSpace(stepDef.StepKey) Then
-                        Throw New InvalidOperationException($"Workflow '{workflow.WorkflowKey}' contains a step with no StepKey.")
-                    End If
-
-                    If Not String.IsNullOrWhiteSpace(stepDef.NextStepKey) Then
-
-                        Dim nextExists As Boolean =
-                    workflow.Steps.Any(
-                        Function(s) s IsNot Nothing AndAlso
-                                    String.Equals(If(s.StepKey, "").Trim(),
-                                                  stepDef.NextStepKey.Trim(),
-                                                  StringComparison.OrdinalIgnoreCase))
-
-                        If Not nextExists Then
-                            Throw New InvalidOperationException(
-                        $"Workflow '{workflow.WorkflowKey}' step '{stepDef.StepKey}' points to missing next step '{stepDef.NextStepKey}'.")
-                        End If
-
-                    End If
-
-                Next
-
-            Next
-
-            Dim pickupExists As Boolean =
-        config.EnabledWorkflows.Any(
-            Function(w) w IsNot Nothing AndAlso
-                        String.Equals(w.WorkflowKey,
-                                      config.HomePickupWorkflowKey,
-                                      StringComparison.OrdinalIgnoreCase))
-
-            Dim stageExists As Boolean =
-        config.EnabledWorkflows.Any(
-            Function(w) w IsNot Nothing AndAlso
-                        String.Equals(w.WorkflowKey,
-                                      config.HomeDeliveryWorkflowKey,
-                                      StringComparison.OrdinalIgnoreCase))
-
-            If Not pickupExists AndAlso Not stageExists Then
-                Throw New InvalidOperationException("Neither configured home workflow exists.")
-            End If
-
+            WorkflowConfigurationValidator.Validate(config)
         End Sub
         Private Function ResolveWorkflowConfigPath() As String
 
@@ -779,11 +712,16 @@ $"Action={wf.WorkflowAction}")
             _loadedOnce = True
 
             StartPendingCommitFlusher()
+            StartWorkflowInactivityTimer()
 
-            Dim hasIncompleteTransactions As Boolean = Await CheckForIncompleteLockerTransactionsAsync()
+            Dim startupRecoveryPrompt As String = Await BuildStartupRecoveryPromptAsync()
 
             RemoveHandler KeypadControl.PasscodeComplete, AddressOf HandleKeypadSubmit
             AddHandler KeypadControl.PasscodeComplete, AddressOf HandleKeypadSubmit
+            KeypadControl.AddHandler(
+                Button.ClickEvent,
+                New RoutedEventHandler(AddressOf KeypadButton_Click),
+                True)
 
             Try
                 fadeIn.Begin()
@@ -815,14 +753,8 @@ $"Action={wf.WorkflowAction}")
 
             RefreshHomeWorkflowButtons()
 
-            If hasIncompleteTransactions Then
-                ShowPrompt(
-        "Warning: incomplete locker transaction(s) detected." &
-        Environment.NewLine &
-        "Administrative review may be required." &
-        Environment.NewLine &
-        Environment.NewLine &
-        "Returning to start.")
+            If Not String.IsNullOrWhiteSpace(startupRecoveryPrompt) Then
+                ShowPrompt(startupRecoveryPrompt)
 
                 Await Task.Delay(5000)
 
@@ -844,7 +776,7 @@ $"Action={wf.WorkflowAction}")
             FocusHidSink()
 
         End Sub
-        Private Async Function CheckForIncompleteLockerTransactionsAsync() As Task(Of Boolean)
+        Private Async Function BuildStartupRecoveryPromptAsync() As Task(Of String)
 
             Try
                 Dim recovery As New LockerTransactionRecoveryService()
@@ -852,7 +784,7 @@ $"Action={wf.WorkflowAction}")
                 Dim incomplete = Await recovery.GetIncompleteTransactionsAsync(25)
 
                 If incomplete Is Nothing OrElse incomplete.Count = 0 Then
-                    Return False
+                    Return ""
                 End If
 
                 TraceLogger.Log($"RECOVERY found {incomplete.Count} incomplete locker transaction(s).")
@@ -875,14 +807,38 @@ $"Action={wf.WorkflowAction}")
             .ReasonCode = $"IncompleteTransactionsDetected;Count={incomplete.Count}"
         })
 
-                Return True
+                Dim firstItems =
+                    incomplete.
+                    Take(3).
+                    Select(Function(tx)
+                               Return $"#{tx.Id} {tx.Workflow}/{tx.ActionType} L{tx.LockerNumber} {tx.TransactionState}/{tx.AckStatus}"
+                           End Function).
+                    ToList()
+
+                Dim summary As String =
+                    "Warning: incomplete locker transaction(s) detected." &
+                    Environment.NewLine &
+                    $"Count: {incomplete.Count}" &
+                    Environment.NewLine &
+                    String.Join(Environment.NewLine, firstItems)
+
+                If incomplete.Count > firstItems.Count Then
+                    summary &= Environment.NewLine & $"...and {incomplete.Count - firstItems.Count} more."
+                End If
+
+                summary &=
+                    Environment.NewLine &
+                    Environment.NewLine &
+                    "Open Admin > Transaction Recovery for review."
+
+                Return summary
 
             Catch ex As Exception
 
                 TraceExceptionDeep("RECOVERY_SCAN_FAILED", ex)
 
                 ' Do not block kiosk startup if recovery scan itself fails.
-                Return False
+                Return ""
 
             End Try
 
@@ -1100,14 +1056,22 @@ $"Action={wf.WorkflowAction}")
         Private Sub Window_PreviewTextInput(sender As Object, e As TextCompositionEventArgs) Handles Me.PreviewTextInput
             If e Is Nothing Then Return
             If String.IsNullOrEmpty(e.Text) Then Return
+            RecordUserActivity()
             _barcodeScanService.HandleTextInput(e.Text)
         End Sub
         Private Sub Window_PreviewKeyDown(sender As Object, e As KeyEventArgs) Handles Me.PreviewKeyDown
             If e Is Nothing Then Return
+            RecordUserActivity()
             _barcodeScanService.HandleKeyDown(e.Key)
             If e.Key = Key.Enter OrElse e.Key = Key.Return Then
                 e.Handled = True
             End If
+        End Sub
+        Private Sub Window_PreviewMouseDown(sender As Object, e As MouseButtonEventArgs) Handles Me.PreviewMouseDown
+            RecordUserActivity()
+        End Sub
+        Private Sub Window_PreviewTouchDown(sender As Object, e As TouchEventArgs) Handles Me.PreviewTouchDown
+            RecordUserActivity()
         End Sub
 #End Region
 
@@ -1117,14 +1081,14 @@ $"Action={wf.WorkflowAction}")
             If value.Length = 0 Then Return
 
             If _state = ScreenState.AwaitAdminCredential Then
-                SubmitCredential(value, source)
+                StartWorkflowTask(SubmitCredentialAsync(value, source), "SubmitCredential")
                 Return
             End If
 
             If _activeStep Is Nothing Then
                 Select Case _state
                     Case ScreenState.AwaitCredential
-                        SubmitCredential(value, source)
+                        StartWorkflowTask(SubmitCredentialAsync(value, source), "SubmitCredential")
                     Case Else
                         Return
                 End Select
@@ -1136,17 +1100,35 @@ $"Action={wf.WorkflowAction}")
 
             Select Case stepKey
                 Case "credential_scan"
-                    SubmitCredential(value, source)
+                    StartWorkflowTask(SubmitCredentialAsync(value, source), "SubmitCredential")
 
                 Case "work_order_scan"
-                    SubmitWorkOrder(value, source)
+                    StartWorkflowTask(SubmitWorkOrderAsync(value, source), "SubmitWorkOrder")
 
                 Case "asset_scan"
-                    SubmitAssetScan(value, source)
+                    StartWorkflowTask(SubmitAssetScanAsync(value, source), "SubmitAssetScan")
 
                 Case Else
                     Return
             End Select
+        End Sub
+        Private Async Sub StartWorkflowTask(task As Task, operationName As String)
+            Try
+                Await task
+            Catch ex As OperationCanceledException
+                TraceLogger.Log($"{operationName} cancelled.")
+                If _returnToStartRequested Then
+                    CompleteDeferredReturnToStartIfRequested()
+                End If
+            Catch ex As Exception
+                TraceExceptionDeep(operationName & "_UNHANDLED", ex)
+                ShowPrompt("The workflow could not continue. Returning to start.")
+                Dim resetOperation = Dispatcher.BeginInvoke(
+                    Async Sub()
+                        Await Task.Delay(1500)
+                        ResetToAwaitWorkflowChoice()
+                    End Sub)
+            End Try
         End Sub
         Private Sub OnScanCompleted(scanText As String)
 
@@ -1213,6 +1195,19 @@ $"Action={wf.WorkflowAction}")
             TraceToFile("RESET_TO_HOME")
 
             BumpUiEpoch()
+            _returnToStartRequested = False
+            CancelWorkflowRequests()
+
+            If _touchSelectionTcs IsNot Nothing Then
+                _touchSelectionTcs.TrySetResult(Nothing)
+                _touchSelectionTcs = Nothing
+            End If
+
+            If _deliverAnotherTcs IsNot Nothing Then
+                _deliverAnotherTcs.TrySetResult(Nothing)
+            End If
+
+            HideDeliverAnotherPrompt()
 
             ' 🔥 CRITICAL FIX
             SetUiEnabled(True)
@@ -1220,6 +1215,7 @@ $"Action={wf.WorkflowAction}")
             _state = ScreenState.AwaitWorkflowChoice
             _activeWorkflow = Nothing
             _activeStep = Nothing
+            _lastCredentialKey = ""
 
             _authResult = Nothing
             _courierAuth = Nothing
@@ -1230,6 +1226,9 @@ $"Action={wf.WorkflowAction}")
             SizeSelectionPanel.Visibility = Visibility.Collapsed
             SizeTilesItems.ItemsSource = Nothing
             _selectedSizeCode = Nothing
+            DefectPanel.Visibility = Visibility.Collapsed
+            DefectButtonGrid.Children.Clear()
+            ReturnToStartButton.Visibility = Visibility.Collapsed
 
             _activeAssetTag = Nothing
             _selectedCompartmentNumber = Nothing
@@ -1248,6 +1247,7 @@ $"Action={wf.WorkflowAction}")
         End Sub
         Private Sub PromptForCredential()
             BumpUiEpoch()
+            BeginWorkflowCancellationScope()
 
             _barcodeScanService.Validator = Nothing
 
@@ -1272,7 +1272,9 @@ $"Action={wf.WorkflowAction}")
             FocusHidSink()
         End Sub
         Private Sub SetUiEnabled(enabled As Boolean)
-            KeypadControl.IsEnabled = enabled
+            ' Keep CLR available while requests are running. State guards prevent
+            ' duplicate submissions from the remaining keypad buttons.
+            KeypadControl.IsEnabled = True
 
             If enabled Then
                 If _state = ScreenState.AwaitWorkflowChoice Then
@@ -1286,6 +1288,97 @@ $"Action={wf.WorkflowAction}")
                 PickupButton.IsEnabled = False
                 DeliverButton.IsEnabled = False
             End If
+        End Sub
+        Private Sub KeypadButton_Click(sender As Object, e As RoutedEventArgs)
+            Dim button = TryCast(e.OriginalSource, Button)
+            If button Is Nothing Then Return
+            RecordUserActivity()
+
+            Dim content As String = If(button.Content, "").ToString().Trim()
+            If Not String.Equals(content, "CLR", StringComparison.OrdinalIgnoreCase) Then Return
+
+            RequestReturnToStart()
+        End Sub
+        Private Sub WorkflowClearButton_Click(sender As Object, e As RoutedEventArgs)
+            e.Handled = True
+            RequestReturnToStart()
+        End Sub
+        Private Sub RequestReturnToStart()
+            KeypadControl.Reset()
+            _barcodeScanService.ResetAll()
+
+            If _state = ScreenState.AwaitWorkflowChoice Then Return
+
+            If _lockerDoorCycleActive AndAlso
+               (DateTime.UtcNow - _lastDoorCycleReturnRequestUtc).TotalSeconds > 5 Then
+                _lastDoorCycleReturnRequestUtc = DateTime.UtcNow
+                ShowPrompt(
+                    "A compartment is open. Close it first." &
+                    Environment.NewLine &
+                    "Press RETURN TO START again to confirm.")
+                Return
+            End If
+
+            If _state = ScreenState.ValidatingCredential Then
+                _returnToStartRequested = True
+                CancelWorkflowRequests()
+                ShowPrompt("Return to start requested. Finishing the current operation safely...")
+                Return
+            End If
+
+            ResetToAwaitWorkflowChoice()
+        End Sub
+        Private Function CompleteDeferredReturnToStartIfRequested() As Boolean
+            If Not _returnToStartRequested Then Return False
+
+            ResetToAwaitWorkflowChoice()
+            Return True
+        End Function
+        Private Sub BeginWorkflowCancellationScope()
+            CancelWorkflowRequests()
+            _workflowCancellation = New CancellationTokenSource()
+        End Sub
+        Private Sub CancelWorkflowRequests()
+            If _workflowCancellation Is Nothing Then Return
+
+            Try
+                _workflowCancellation.Cancel()
+            Catch
+            Finally
+                _workflowCancellation.Dispose()
+                _workflowCancellation = Nothing
+            End Try
+        End Sub
+        Private Function GetWorkflowCancellationToken() As CancellationToken
+            If _workflowCancellation Is Nothing OrElse _workflowCancellation.IsCancellationRequested Then
+                _workflowCancellation = New CancellationTokenSource()
+            End If
+
+            Return _workflowCancellation.Token
+        End Function
+        Private Sub StartWorkflowInactivityTimer()
+            If _inactivityTimer Is Nothing Then
+                _inactivityTimer = New Threading.DispatcherTimer With {
+                    .Interval = TimeSpan.FromSeconds(1)
+                }
+                AddHandler _inactivityTimer.Tick, AddressOf WorkflowInactivityTimer_Tick
+            End If
+
+            _lastUserActivityUtc = DateTime.UtcNow
+            _inactivityTimer.Start()
+        End Sub
+        Private Sub RecordUserActivity()
+            _lastUserActivityUtc = DateTime.UtcNow
+        End Sub
+        Private Sub WorkflowInactivityTimer_Tick(sender As Object, e As EventArgs)
+            If _state = ScreenState.AwaitWorkflowChoice Then Return
+
+            Dim timeoutSeconds As Integer = Math.Max(15, AppSettings.WorkflowInactivityTimeoutSeconds)
+            If (DateTime.UtcNow - _lastUserActivityUtc).TotalSeconds < timeoutSeconds Then Return
+
+            _lastUserActivityUtc = DateTime.UtcNow
+            TraceLogger.Log($"WORKFLOW INACTIVITY TIMEOUT state={_state}; timeoutSeconds={timeoutSeconds}")
+            RequestReturnToStart()
         End Sub
         Private Sub ShowPrompt(text As String)
             If text = "Select Pickup or Delivery" OrElse text = "Enter Admin Credential" Then
@@ -1306,6 +1399,7 @@ $"Action={wf.WorkflowAction}")
             End If
 
             BumpUiEpoch()
+            BeginWorkflowCancellationScope()
 
             _activeWorkflow = workflow
             _activeStep = Nothing
@@ -1359,6 +1453,8 @@ $"Action={wf.WorkflowAction}")
             End If
 
             _activeStep = stepDef
+            ReturnToStartButton.Visibility = Visibility.Visible
+            RecordUserActivity()
 
             Dim normalizedStepKey As String = (If(stepDef.StepKey, "")).Trim().ToLowerInvariant()
 
@@ -1473,6 +1569,7 @@ $"Action={wf.WorkflowAction}")
             If _state = ScreenState.AwaitAdminCredential Then Return
 
             BumpUiEpoch()
+            BeginWorkflowCancellationScope()
 
 
             _activeWorkflow = Nothing
@@ -1509,7 +1606,7 @@ $"Action={wf.WorkflowAction}")
         Private Sub HandleKeypadSubmit(sender As Object, value As String)
             RouteScan(value, "KEYPAD")
         End Sub
-        Private Async Sub SubmitCredential(rawCredential As String, source As String)
+        Private Async Function SubmitCredentialAsync(rawCredential As String, source As String) As Task
 
             Dim myEpoch As Integer = _uiEpoch
 
@@ -1526,6 +1623,7 @@ $"Action={wf.WorkflowAction}")
             End If
 
             _lastSubmitUtc = nowUtc
+            _lastCredentialKey = credential
 
             Dim actionId As String = Guid.NewGuid().ToString("N")
 
@@ -1555,6 +1653,7 @@ $"Action={wf.WorkflowAction}")
 
                 TraceLogger.Log(
             $"SUBMIT CREDENTIAL start actionId={actionId}; " &
+            $"credentialKey={credential}; " &
             $"source={source}; purpose={purpose}; " &
             $"workflow={If(_activeWorkflow?.WorkflowKey, "<none>")}")
 
@@ -1583,21 +1682,20 @@ $"Action={wf.WorkflowAction}")
                        Environment.NewLine &
                        "Returning to start.")
 
-                    Dispatcher.BeginInvoke(
-            Async Sub()
+                    Await Task.Delay(2500)
 
-                Await Task.Delay(2500)
-
-                If myEpoch = _uiEpoch Then
-                    ResetToAwaitWorkflowChoice()
-                End If
-
-            End Sub)
+                    If myEpoch = _uiEpoch Then
+                        ResetToAwaitWorkflowChoice()
+                    End If
 
                     Return
                 End If
 
                 _authResult = result
+                _authorizedWorkOrders =
+                    If(result.WorkOrders, New List(Of WorkOrderAuthItem)()).
+                    Where(Function(item) item IsNot Nothing).
+                    ToList()
 
                 If isAdminFlow Then
 
@@ -1639,36 +1737,31 @@ $"Action={wf.WorkflowAction}")
                 ShowPrompt(
             "Authorization failed. Returning to start.")
 
-                Dispatcher.BeginInvoke(
-        Async Sub()
-
-            Await Task.Delay(3000)
-
-            If myEpoch = _uiEpoch Then
-                ResetToAwaitWorkflowChoice()
-            End If
-
-        End Sub)
+                Dim resetOperation = Dispatcher.BeginInvoke(
+                    Async Sub()
+                        Await Task.Delay(3000)
+                        If myEpoch = _uiEpoch Then
+                            ResetToAwaitWorkflowChoice()
+                        End If
+                    End Sub)
 
                 Return
 
             Finally
 
                 If myEpoch = _uiEpoch Then
-
-                    SetUiEnabled(True)
-
-                    KeypadControl.Reset()
-
-                    _barcodeScanService.ResetAll()
-
-                    FocusHidSink()
+                    If Not CompleteDeferredReturnToStartIfRequested() Then
+                        SetUiEnabled(True)
+                        KeypadControl.Reset()
+                        _barcodeScanService.ResetAll()
+                        FocusHidSink()
+                    End If
 
                 End If
 
             End Try
 
-        End Sub
+        End Function
 
         'debug helper to log detailed exception info, including inner exceptions and specific handling for common reflection and file exceptions that may occur during auth validation
         Private Sub TraceExceptionDeep(label As String, ex As Exception)
@@ -1721,7 +1814,11 @@ $"Action={wf.WorkflowAction}")
 ) As Task(Of AuthResult)
 
             Try
-                Return Await _backend.AuthorizeAsync(scanValue, purpose, source, CancellationToken.None)
+                Return Await _backend.AuthorizeAsync(
+                    scanValue,
+                    purpose,
+                    source,
+                    GetWorkflowCancellationToken())
 
             Catch ex As OperationCanceledException
                 TraceExceptionDeep("AUTH_CANCELLED", ex)
@@ -1991,7 +2088,7 @@ $"Action={wf.WorkflowAction}")
 #End Region
 
 #Region "Pickup workflow"
-        Private Async Sub SubmitWorkOrder(rawWorkOrder As String, source As String)
+        Private Async Function SubmitWorkOrderAsync(rawWorkOrder As String, source As String) As Task
 
             Dim myEpoch As Integer = _uiEpoch
 
@@ -2066,9 +2163,11 @@ $"Action={wf.WorkflowAction}")
 
             Finally
                 If myEpoch = _uiEpoch Then
-                    KeypadControl.Reset()
-                    SetUiEnabled(True)
-                    FocusHidSink()
+                    If Not CompleteDeferredReturnToStartIfRequested() Then
+                        KeypadControl.Reset()
+                        SetUiEnabled(True)
+                        FocusHidSink()
+                    End If
                 End If
             End Try
 
@@ -2088,7 +2187,7 @@ $"Action={wf.WorkflowAction}")
 
             End If
 
-        End Sub
+        End Function
         Private Function GetWorkflowAction(workflow As WorkflowDefinition) As String
 
             If workflow Is Nothing Then Return String.Empty
@@ -2414,16 +2513,11 @@ $"Action={wf.WorkflowAction}")
 
                 ShowPrompt("Pickup failed. Returning to start.")
 
-                Dispatcher.BeginInvoke(
-            Async Sub()
-
                 Await Task.Delay(3000)
 
                 If myEpoch = _uiEpoch Then
                     ResetToAwaitWorkflowChoice()
                 End If
-
-            End Sub)
 
                 Return
 
@@ -2569,6 +2663,31 @@ $"Action={wf.WorkflowAction}")
 #End Region
 
 #Region "Checkout workflow"
+        Private Async Sub BeginAssetCheckoutAsync()
+
+            Dim myEpoch As Integer = _uiEpoch
+            Dim actionId As String = Guid.NewGuid().ToString("N")
+
+            Dim candidate As AssetCheckoutCandidate = ResolveNextCheckoutCandidate()
+
+            If candidate Is Nothing OrElse
+       String.IsNullOrWhiteSpace(candidate.LockerNumber) OrElse
+       String.IsNullOrWhiteSpace(candidate.AssetTag) OrElse
+       String.IsNullOrWhiteSpace(candidate.DeviceType) Then
+
+                ShowPrompt("No authorized device is currently available for this user.")
+                Await Task.Delay(1500)
+
+                If myEpoch = _uiEpoch Then
+                    ResetToAwaitWorkflowChoice()
+                End If
+
+                Return
+            End If
+
+            Await ProcessCheckoutAsync(candidate, actionId, myEpoch)
+
+        End Sub
         Private Async Function CompleteCheckoutForLockerAsync(deviceType As String,
                                                       lockerNumber As String,
                                                       Optional journalId As Integer? = Nothing) As Task
@@ -2626,62 +2745,141 @@ $"Action={wf.WorkflowAction}")
             End If
 
         End Function
-        Private Async Function ProcessCheckoutAsync(selectedDeviceType As String,
-                                            actionId As String,
-                                            myEpoch As Integer) As Task
+        Private Async Function ProcessCheckoutAsync(
+    candidate As AssetCheckoutCandidate,
+    actionId As String,
+    myEpoch As Integer
+) As Task
 
-            Dim requestedType As String = If(selectedDeviceType, "").Trim()
-
-            If requestedType.Length = 0 Then
-                ShowPrompt("No device type was selected. Returning to start.")
-
-                Dispatcher.BeginInvoke(
-            Async Sub()
-                Await Task.Delay(2000)
-                If myEpoch = _uiEpoch Then ResetToAwaitWorkflowChoice()
-            End Sub)
-
-                Return
-            End If
-
-            Dim openResult As LockerActionResult = Nothing
             Dim processException As Exception = Nothing
-            Dim dbUpdateException As Exception = Nothing
+            Dim openResult As LockerActionResult = Nothing
+            Dim authorizeResponse As LockerAuthorizeResponseDto = Nothing
+            Dim ackSucceeded As Boolean = False
 
             Try
-                Dim lockerNumber As String =
-            _assigner.SelectNextOccupiedLockerNumberByDeviceType(requestedType)
+                If candidate Is Nothing Then
+                    ShowPrompt("No checkout candidate was selected.")
+                    Await Task.Delay(1500)
 
-                If String.IsNullOrWhiteSpace(lockerNumber) Then
-                    ShowPrompt($"No available {requestedType} device was found. Returning to start.")
-
-                    Dispatcher.BeginInvoke(
-                Async Sub()
-                    Await Task.Delay(2500)
                     If myEpoch = _uiEpoch Then ResetToAwaitWorkflowChoice()
-                End Sub)
-
                     Return
                 End If
 
-                ShowPrompt($"Opening locker {lockerNumber}...")
+                Dim lockerNumber As String = If(candidate.LockerNumber, "").Trim()
+                Dim assetTag As String = If(candidate.AssetTag, "").Trim()
+                Dim requestedType As String = If(candidate.DeviceType, "").Trim().ToUpperInvariant()
 
-                openResult =
-            Await TryOpenLockerWithJournalAsync(actionId, requestedType, lockerNumber)
+                If lockerNumber.Length = 0 OrElse assetTag.Length = 0 OrElse requestedType.Length = 0 Then
+                    ShowPrompt("Selected checkout record is incomplete.")
+                    Await Task.Delay(1500)
+
+                    If myEpoch = _uiEpoch Then ResetToAwaitWorkflowChoice()
+                    Return
+                End If
+
+                _state = ScreenState.ValidatingCredential
+                SetUiEnabled(False)
+
+                Dim credentialKey As String = If(_lastCredentialKey, "").Trim()
+
+                If credentialKey.Length = 0 AndAlso _authResult IsNot Nothing Then
+                    credentialKey = If(_authResult.UserId, "").Trim()
+                End If
+
+                If credentialKey.Length = 0 Then
+                    credentialKey = GetAuthorizedActorIdForCurrentSession()
+                End If
+
+                If credentialKey.Length = 0 Then
+                    Throw New InvalidOperationException("CredentialKey is required before checkout validation.")
+                End If
+
+                TraceLogger.Log(
+            "CHECKOUT VALIDATION START: " &
+            "credentialKey=" & credentialKey &
+            "; assetTag=" & assetTag &
+            "; locker=" & lockerNumber &
+            "; workflow=asset-checkout")
+
+                ShowPrompt("Validating checkout.")
+
+                Dim opsBackend = TryCast(_backend, OperationsBackendService)
+                Dim validation As AssetValidateResponse
+
+                If opsBackend IsNot Nothing Then
+                    validation = Await opsBackend.ValidateAssetAsync(
+                assetTag:=assetTag,
+                credentialKey:=credentialKey,
+                workflow:="asset-checkout",
+                workflowAction:="pickup",
+                ct:=GetWorkflowCancellationToken())
+                Else
+                    validation = Await _backend.ValidateAssetAsync(
+                        assetTag,
+                        GetWorkflowCancellationToken())
+                End If
+
+                If myEpoch <> _uiEpoch Then Return
+
+                If validation Is Nothing OrElse Not validation.isValid Then
+                    Dim msg As String = If(validation?.message, "").Trim()
+                    If msg.Length = 0 Then msg = "Checkout is not authorized for this associate."
+
+                    TraceLogger.Log(
+                "CHECKOUT VALIDATION DENIED: " &
+                "assetTag=" & assetTag &
+                "; locker=" & lockerNumber &
+                "; message=" & msg)
+
+                    ShowPrompt(msg & Environment.NewLine & Environment.NewLine & "No compartment was opened.")
+                    Await Task.Delay(3000)
+
+                    If myEpoch = _uiEpoch Then ResetToAwaitWorkflowChoice()
+                    Return
+                End If
+
+                TraceLogger.Log(
+            "CHECKOUT VALIDATION ACCEPTED: " &
+            "assetTag=" & assetTag &
+            "; locker=" & lockerNumber &
+            "; deviceType=" & requestedType)
+
+                ShowPrompt("Authorizing compartment release.")
+                authorizeResponse =
+    Await AuthorizeCheckoutWithBackendAsync(
+        assetTag:=assetTag,
+        lockerNumber:=lockerNumber,
+        credentialKey:=credentialKey,
+        actionId:=actionId)
+
+                If myEpoch <> _uiEpoch Then Return
+
+
+                TraceLogger.Log(
+    "CHECKOUT BACKEND AUTHORIZED: " &
+    "assetTag=" & assetTag &
+    "; locker=" & lockerNumber &
+    "; transactionId=" &
+    If(authorizeResponse?.transactionId, "<NULL>"))
+
+                ShowPrompt($"Opening {requestedType} compartment.")
+
+                openResult = Await TryOpenLockerWithJournalAsync(
+            actionId,
+            assetTag,
+            lockerNumber)
+
+                If myEpoch <> _uiEpoch Then Return
 
                 If openResult Is Nothing OrElse Not openResult.Success Then
-                    ShowPrompt($"Unable to open locker {lockerNumber}. Please contact attendant.")
-
-                    Dispatcher.BeginInvoke(
-                Async Sub()
+                    ShowPrompt($"Compartment {lockerNumber} could not be opened.")
                     Await Task.Delay(3000)
-                    If myEpoch = _uiEpoch Then ResetToAwaitWorkflowChoice()
-                End Sub)
 
+                    If myEpoch = _uiEpoch Then ResetToAwaitWorkflowChoice()
                     Return
                 End If
 
-                ShowPrompt($"Locker {lockerNumber} opened. Remove device and close the door.")
+                ShowPrompt($"Compartment {lockerNumber} opened. Remove device and close the door.")
 
                 Dim closedOk As Boolean =
             Await WaitForLockerClosedAsync(
@@ -2692,49 +2890,33 @@ $"Action={wf.WorkflowAction}")
                 If myEpoch <> _uiEpoch Then Return
 
                 If Not closedOk Then
-                    ShowPrompt($"Please close locker {lockerNumber}. Returning to start.")
-
+                    ShowPrompt($"Please close compartment {lockerNumber}. Checkout was not completed.")
                     Await Task.Delay(3000)
 
                     If myEpoch = _uiEpoch Then ResetToAwaitWorkflowChoice()
-
                     Return
                 End If
 
-                Try
-                    Await CompleteCheckoutForLockerAsync(
-                requestedType,
-                lockerNumber,
-                If(openResult Is Nothing, CType(Nothing, Integer?), openResult.JournalId))
+                ShowPrompt("Completing checkout with backend.")
 
-                Catch ex As Exception
-                    dbUpdateException = ex
-                End Try
+                ackSucceeded =
+    Await CompleteCheckoutLocalStateAndAckBackendAsync(
+        deviceType:=requestedType,
+        lockerNumber:=lockerNumber,
+        assetTag:=assetTag,
+        actionId:=actionId,
+        authorizeResponse:=authorizeResponse,
+        journalId:=openResult.JournalId)
 
-                If dbUpdateException IsNot Nothing Then
-                    TraceExceptionDeep("CHECKOUT_COMPLETE_DB_SAVE_FAILED", dbUpdateException)
+                If myEpoch <> _uiEpoch Then Return
 
-                    If openResult IsNot Nothing Then
-                        Try
-                            Await New LockerActionService().
-                        UpdateJournalStateAsync(
-                            openResult.JournalId,
-                            LockerTransactionState.NeedsReconciliation,
-                            LockerAckStatus.Failed,
-                            dbUpdateException.Message)
+                If Not ackSucceeded Then
+                    ShowPrompt($"{requestedType} checked out. Backend sync is pending.")
+                    Await Task.Delay(2500)
 
-                        Catch updateEx As Exception
-                            TraceExceptionDeep("CHECKOUT_JOURNAL_UPDATE_FAILED", updateEx)
-                        End Try
+                    If myEpoch = _uiEpoch Then
+                        ResetToAwaitWorkflowChoice()
                     End If
-
-                    ShowPrompt("Checkout completed, but database update failed. Please contact attendant.")
-
-                    Dispatcher.BeginInvoke(
-                Async Sub()
-                    Await Task.Delay(3000)
-                    If myEpoch = _uiEpoch Then ResetToAwaitWorkflowChoice()
-                End Sub)
 
                     Return
                 End If
@@ -2743,13 +2925,16 @@ $"Action={wf.WorkflowAction}")
 
                 Await Task.Delay(1500)
 
-                If myEpoch = _uiEpoch Then ResetToAwaitWorkflowChoice()
+                If myEpoch = _uiEpoch Then
+                    ResetToAwaitWorkflowChoice()
+                End If
 
             Catch ex As Exception
                 processException = ex
             End Try
 
             If processException IsNot Nothing Then
+
                 TraceExceptionDeep("CHECKOUT_PROCESS_FAILED", processException)
 
                 If openResult IsNot Nothing Then
@@ -2760,7 +2945,6 @@ $"Action={wf.WorkflowAction}")
                         LockerTransactionState.NeedsReconciliation,
                         LockerAckStatus.Failed,
                         processException.Message)
-
                     Catch updateEx As Exception
                         TraceExceptionDeep("CHECKOUT_JOURNAL_UPDATE_FAILED", updateEx)
                     End Try
@@ -2768,37 +2952,408 @@ $"Action={wf.WorkflowAction}")
 
                 ShowPrompt("Checkout failed. Returning to start.")
 
-                Dispatcher.BeginInvoke(
-            Async Sub()
                 Await Task.Delay(3000)
-                If myEpoch = _uiEpoch Then ResetToAwaitWorkflowChoice()
-            End Sub)
 
-                Return
+                If myEpoch = _uiEpoch Then
+                    ResetToAwaitWorkflowChoice()
+                End If
+
+            End If
+
+        End Function
+        Private Function ResolveNextCheckoutCandidate() As AssetCheckoutCandidate
+
+            If _authResult Is Nothing Then
+                TraceLogger.Log("CHECKOUT: _authResult is Nothing.")
+                Return Nothing
+            End If
+
+            If _authResult.AuthorizedDevices Is Nothing OrElse _authResult.AuthorizedDevices.Count = 0 Then
+                TraceLogger.Log("CHECKOUT: No AuthorizedDevices found on AuthResult.")
+                Return Nothing
+            End If
+
+            Dim authorizedTypes =
+        _authResult.AuthorizedDevices.
+            Where(Function(x) Not String.IsNullOrWhiteSpace(x)).
+            Select(Function(x) x.Trim().ToUpperInvariant()).
+            Distinct().
+            ToList()
+
+            Using db = DatabaseBootstrapper.BuildDbContext()
+
+                For Each deviceType In authorizedTypes
+
+                    TraceLogger.Log("CHECKOUT: Looking for occupied locker with device type " & deviceType)
+
+                    Dim locker = db.Lockers.
+                Include(Function(l) l.Status).
+                Where(Function(l) l.IsEnabled).
+                Where(Function(l) l.Status IsNot Nothing).
+                Where(Function(l) l.Status.OccupancyState = OccupancyState.Occupied).
+                Where(Function(l) l.Status.PackagePresent = True).
+                Where(Function(l) Not String.IsNullOrWhiteSpace(l.Status.CurrentAssetTag)).
+                Where(Function(l) Not String.IsNullOrWhiteSpace(l.Status.CurrentDeviceType)).
+                Where(Function(l) l.Status.CurrentDeviceType.ToUpper() = deviceType).
+                OrderBy(Function(l) l.RelayId).
+                ThenBy(Function(l) l.LockerNumber).
+                FirstOrDefault()
+
+                    If locker IsNot Nothing AndAlso locker.Status IsNot Nothing Then
+
+                        Dim candidate As New AssetCheckoutCandidate With {
+                    .LockerNumber = If(locker.LockerNumber, "").Trim(),
+                    .AssetTag = If(locker.Status.CurrentAssetTag, "").Trim(),
+                    .DeviceType = If(locker.Status.CurrentDeviceType, "").Trim().ToUpperInvariant()
+                }
+
+                        TraceLogger.Log(
+                    "CHECKOUT: Candidate selected. " &
+                    "locker=" & candidate.LockerNumber &
+                    "; assetTag=" & candidate.AssetTag &
+                    "; deviceType=" & candidate.DeviceType)
+
+                        Return candidate
+
+                    End If
+
+                Next
+
+            End Using
+
+            TraceLogger.Log("CHECKOUT: Authorized devices found, but no occupied locker matched.")
+            Return Nothing
+
+        End Function
+        Private Async Function ClearLocalCheckoutOccupancyAfterBackendAckAsync(
+    deviceType As String,
+    lockerNumber As String,
+    Optional journalId As Integer? = Nothing
+) As Task
+
+            Dim requestedType As String = If(deviceType, "").Trim()
+            Dim ln As String = If(lockerNumber, "").Trim()
+
+            If requestedType.Length = 0 OrElse ln.Length = 0 Then Return
+
+            Using db = DatabaseBootstrapper.BuildDbContext()
+
+                Dim locker = db.Lockers.
+            Include(Function(l) l.Status).
+            SingleOrDefault(Function(l) l.LockerNumber = ln)
+
+                If locker Is Nothing OrElse locker.Status Is Nothing Then
+                    Return
+                End If
+
+                Dim actorId As String = ""
+
+                If _authResult IsNot Nothing Then
+                    actorId = If(_authResult.ActorID, _authResult.UserId)
+                End If
+
+                locker.Status.OccupancyState = OccupancyState.Vacant
+                locker.Status.PackagePresent = False
+                locker.Status.LastUpdatedUtc = DateTime.UtcNow
+                locker.Status.LastReason = "CheckoutCompletedBackendAcked"
+                locker.Status.LastActorId = If(actorId, "").Trim()
+
+                locker.Status.LastWorkOrderNumber = ""
+                locker.Status.ReservedWorkOrderNumber = ""
+                locker.Status.ReservedCorrelationId = ""
+                locker.Status.ReservedUntilUtc = Nothing
+
+                locker.Status.CurrentDeviceType = ""
+                locker.Status.CurrentAssetTag = ""
+                locker.Status.IsDefectiveHold = False
+                locker.Status.DefectType = ""
+
+                Try
+                    db.SaveChanges()
+                Catch ex As Exception
+                    TraceExceptionDeep("CHECKOUT_LOCAL_CLEAR_SAVE_FAILED", ex)
+                    Throw
+                End Try
+
+            End Using
+
+            If journalId.HasValue Then
+                Await New LockerActionService().
+            MarkDoorClosedAndLocalStateUpdatedAsync(journalId.Value)
             End If
 
         End Function
 
+        Private Function GetCurrentBackendBearerToken() As String
+
+            If Not String.IsNullOrWhiteSpace(_sessionToken) Then
+                Return _sessionToken.Trim()
+            End If
+
+            If _courierAuth IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(_courierAuth.SessionToken) Then
+                Return _courierAuth.SessionToken.Trim()
+            End If
+
+            If _authResult IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(_authResult.SessionToken) Then
+                Return _authResult.SessionToken.Trim()
+            End If
+
+            Return ""
+
+        End Function
+
+        Private Async Function AuthorizeCheckoutWithBackendAsync(
+    assetTag As String,
+    lockerNumber As String,
+    credentialKey As String,
+    actionId As String
+) As Task(Of LockerAuthorizeResponseDto)
+
+            Dim opsBackend = TryCast(_backend, OperationsBackendService)
+
+            If opsBackend Is Nothing Then
+                Throw New InvalidOperationException(
+            "Operations backend is required for checkout authorization.")
+            End If
+
+            Dim actorId As String = ""
+
+            If _authResult IsNot Nothing Then
+                actorId = If(_authResult.ActorID, "").Trim()
+
+                If actorId.Length = 0 Then
+                    actorId = If(_authResult.UserId, "").Trim()
+                End If
+            End If
+
+            If actorId.Length = 0 Then
+                actorId = credentialKey
+            End If
+
+            Dim cleanAssetTag As String = If(assetTag, "").Trim()
+            Dim cleanLockerNumber As String = If(lockerNumber, "").Trim()
+            Dim cleanCredentialKey As String = If(credentialKey, "").Trim()
+            Dim cleanActionId As String = If(actionId, "").Trim()
+
+            If cleanAssetTag.Length = 0 Then
+                Throw New ArgumentException("assetTag is required.", NameOf(assetTag))
+            End If
+
+            If cleanLockerNumber.Length = 0 Then
+                Throw New ArgumentException("lockerNumber is required.", NameOf(lockerNumber))
+            End If
+
+            If cleanActionId.Length = 0 Then
+                cleanActionId = Guid.NewGuid().ToString("N")
+            End If
+
+            If actorId.Length = 0 Then
+                actorId = cleanCredentialKey
+            End If
+
+            Using db = DatabaseBootstrapper.BuildDbContext()
+
+                Dim locker = db.Lockers.
+            AsNoTracking().
+            SingleOrDefault(Function(l) l.LockerNumber = cleanLockerNumber)
+
+                If locker Is Nothing Then
+                    Throw New InvalidOperationException($"Locker {cleanLockerNumber} was not found.")
+                End If
+
+                Dim siteCode As String =
+            If(String.IsNullOrWhiteSpace(AppSettings.SiteCode),
+               AppSettings.LocationId,
+               AppSettings.SiteCode)
+
+                Dim dto As New LockerAuthorizeRequestDto With {
+            .requestId = Guid.NewGuid().ToString("N"),
+            .correlationId = cleanActionId,
+            .requestedBy = actorId,
+            .actorId = actorId,
+            .requestedByType = "user",
+            .siteCode = siteCode,
+            .lockerBankId = $"BANK-{locker.Branch}",
+            .lockerId = locker.LockerNumber,
+            .doorId = $"D{locker.RelayId}",
+            .actionType = "open_door",
+            .requestedAtUtc = DateTime.UtcNow.ToString("o"),
+            .reasonCode = "ASSET_CHECKOUT",
+            .metadata = New LockerAuthorizeMetadataDto With {
+                .workOrderId = cleanAssetTag
+            }
+        }
+
+                Dim bearerToken As String = GetCurrentBackendBearerToken()
+
+                TraceLogger.Log(
+            "CHECKOUT LOCKER AUTHORIZE START: " &
+            "locker=" & cleanLockerNumber &
+            "; assetTag=" & cleanAssetTag &
+            "; actorId=" & actorId &
+            "; requestedBy=" & actorId &
+            "; tokenPresent=" & Not String.IsNullOrWhiteSpace(bearerToken) &
+            "; correlationId=" & cleanActionId)
+
+                Dim response =
+            Await opsBackend.AuthorizeLockerActionAsync(
+                dto,
+                bearerToken:=bearerToken,
+                ct:=GetWorkflowCancellationToken())
+
+            If response Is Nothing Then
+                Throw New InvalidOperationException(
+            "Locker authorize response was null.")
+            End If
+
+            If response.authorization Is Nothing OrElse
+       Not response.authorization.isAuthorized Then
+
+                Throw New InvalidOperationException(
+            "Backend denied locker checkout authorization.")
+            End If
+
+            If String.IsNullOrWhiteSpace(response.transactionId) Then
+                Throw New InvalidOperationException(
+            "Locker authorize response missing transactionId.")
+            End If
+
+                If String.IsNullOrWhiteSpace(response.commandId) Then
+                    Throw New InvalidOperationException(
+                "Locker authorize response missing commandId.")
+                End If
+
+            TraceLogger.Log(
+        "CHECKOUT LOCKER AUTHORIZED: " &
+        "transactionId=" & response.transactionId &
+        "; commandId=" & response.commandId &
+        "; locker=" & cleanLockerNumber)
+
+            Return response
+
+            End Using
+
+        End Function
+
+        Private Async Function CompleteCheckoutLocalStateAndAckBackendAsync(
+    deviceType As String,
+    lockerNumber As String,
+    assetTag As String,
+    actionId As String,
+    authorizeResponse As LockerAuthorizeResponseDto,
+    Optional journalId As Integer? = Nothing
+) As Task(Of Boolean)
+
+            If authorizeResponse Is Nothing Then
+                Throw New ArgumentNullException(NameOf(authorizeResponse))
+            End If
+
+            Dim opsBackend = TryCast(_backend, OperationsBackendService)
+
+            If opsBackend Is Nothing Then
+                Throw New InvalidOperationException(
+            "Operations backend is required for checkout ACK.")
+            End If
+
+            Dim cleanLockerNumber As String = If(lockerNumber, "").Trim()
+            Dim cleanAssetTag As String = If(assetTag, "").Trim()
+            Dim cleanActionId As String = If(actionId, "").Trim()
+            Dim actionService As New LockerActionService()
+
+            Await ClearLocalCheckoutOccupancyAfterBackendAckAsync(
+        deviceType:=deviceType,
+        lockerNumber:=cleanLockerNumber,
+        journalId:=journalId)
+
+            If String.IsNullOrWhiteSpace(authorizeResponse.transactionId) Then
+                Throw New InvalidOperationException("Locker authorize response missing transactionId.")
+            End If
+
+            If String.IsNullOrWhiteSpace(authorizeResponse.commandId) Then
+                Throw New InvalidOperationException("Locker authorize response missing commandId.")
+            End If
+
+            Dim dto As New LockerAckRequestDto With {
+        .transactionId = authorizeResponse.transactionId.Trim(),
+        .commandId = authorizeResponse.commandId.Trim(),
+        .correlationId = cleanActionId,
+        .ackStatus = "completed",
+        .adapterName = AppSettings.AdapterName,
+        .hardwareEventCode = "LOCKER_ASSET_CHECKOUT_COMPLETE",
+        .message = $"Asset {cleanAssetTag} checked out from locker {cleanLockerNumber}.",
+        .compartmentIds = New List(Of String) From {
+            cleanLockerNumber
+        }
+    }
+
+            Dim ackJson As String = ""
+
+            Try
+                ackJson = JsonSerializer.Serialize(dto, _jsonOpts)
+            Catch
+                ackJson = ""
+            End Try
+
+            If journalId.HasValue Then
+                Await actionService.MarkAckPendingAsync(journalId.Value, ackJson)
+            End If
+
+            Dim bearerToken As String = GetCurrentBackendBearerToken()
+
+            TraceLogger.Log(
+        "CHECKOUT ACK START: " &
+        "transactionId=" & dto.transactionId &
+        "; commandId=" & dto.commandId &
+        "; locker=" & cleanLockerNumber &
+        "; tokenPresent=" & Not String.IsNullOrWhiteSpace(bearerToken))
+
+            Dim ackFailureException As Exception = Nothing
+
+            Try
+                Await opsBackend.AckLockerActionAsync(
+            dto,
+            bearerToken:=bearerToken,
+            ct:=GetWorkflowCancellationToken())
+            Catch ex As Exception
+                ackFailureException = ex
+            End Try
+
+            If ackFailureException IsNot Nothing Then
+                TraceExceptionDeep("CHECKOUT_ACK_FAILED", ackFailureException)
+
+                If journalId.HasValue Then
+                    Await actionService.MarkAckFailedAsync(
+                journalId.Value,
+                ackFailureException.Message)
+
+                    Await actionService.UpdateJournalStateAsync(
+                journalId.Value,
+                LockerTransactionState.NeedsReconciliation,
+                LockerAckStatus.Failed,
+                ackFailureException.Message)
+                End If
+
+                Return False
+            End If
+
+            TraceLogger.Log(
+        "CHECKOUT ACK SUCCESS: " &
+        "transactionId=" & dto.transactionId &
+        "; locker=" & cleanLockerNumber)
+
+            If journalId.HasValue Then
+                Await actionService.MarkAckSucceededAsync(journalId.Value)
+            End If
+
+            Return True
+
+        End Function
+
+
 #End Region
 
 #Region "Return / Asset deposit workflow"
-        Private Async Sub BeginAssetCheckoutAsync()
 
-            Dim myEpoch As Integer = _uiEpoch
-            Dim actionId As String = Guid.NewGuid().ToString("N")
-
-            Dim selectedDeviceType As String = ResolveRequestedCheckoutDeviceType()
-
-            If String.IsNullOrWhiteSpace(selectedDeviceType) Then
-                ShowPrompt("No authorized device type was found for this user.")
-                Await Task.Delay(1500)
-                If myEpoch = _uiEpoch Then ResetToAwaitWorkflowChoice()
-                Return
-            End If
-
-            Await ProcessCheckoutAsync(selectedDeviceType, actionId, myEpoch)
-
-        End Sub
         Private Sub PromptForAssetScan()
             BumpUiEpoch()
 
@@ -2890,7 +3445,7 @@ $"Action={wf.WorkflowAction}")
             Return True
 
         End Function
-        Private Async Sub SubmitAssetScan(rawAssetScan As String, source As String)
+        Private Async Function SubmitAssetScanAsync(rawAssetScan As String, source As String) As Task
 
             Dim myEpoch As Integer = _uiEpoch
             Dim assetRaw As String = If(rawAssetScan, String.Empty).Trim()
@@ -2938,11 +3493,11 @@ $"Action={wf.WorkflowAction}")
                 assetTag:=normalizedAsset,
                 workflow:=workflowKey,
                 workflowAction:=workflowAction,
-                ct:=CancellationToken.None)
+                ct:=GetWorkflowCancellationToken())
                 Else
                     result = Await _backend.ValidateAssetAsync(
                 normalizedAsset,
-                CancellationToken.None)
+                GetWorkflowCancellationToken())
                 End If
 
                 If myEpoch <> _uiEpoch Then Return
@@ -3017,13 +3572,15 @@ $"Action={wf.WorkflowAction}")
             Finally
 
                 If myEpoch = _uiEpoch Then
-                    SetUiEnabled(True)
-                    FocusHidSink()
+                    If Not CompleteDeferredReturnToStartIfRequested() Then
+                        SetUiEnabled(True)
+                        FocusHidSink()
+                    End If
                 End If
 
             End Try
 
-        End Sub
+        End Function
         Private Function ValidateAssetScan(scan As String) As ScanValidationResult
             Dim v As String = If(scan, "").Trim().ToUpperInvariant()
 
@@ -3179,6 +3736,7 @@ $"Action={wf.WorkflowAction}")
 
                 Dim tcs As New TaskCompletionSource(Of String)(
             TaskCreationOptions.RunContinuationsAsynchronously)
+                _touchSelectionTcs = tcs
 
                 Await Dispatcher.InvokeAsync(
             Sub()
@@ -3276,6 +3834,9 @@ $"Action={wf.WorkflowAction}")
 
                 DefectPanel.Visibility = Visibility.Collapsed
                 DefectButtonGrid.Children.Clear()
+                If ReferenceEquals(_touchSelectionTcs, tcs) Then
+                    _touchSelectionTcs = Nothing
+                End If
 
                 TraceLogger.Log($"SHOW TOUCH SELECTION CLEANUP END - PanelVisibility={DefectPanel.Visibility}, GridChildren={DefectButtonGrid.Children.Count}")
             End Sub)
@@ -3324,9 +3885,7 @@ $"Action={wf.WorkflowAction}")
                 TraceLogger.Log("ASSET DEPOSIT ABORT missing active asset tag")
 
                 ShowPrompt("Scan an asset tag first.")
-                _state = ScreenState.AwaitAssetScan
-                SetUiEnabled(True)
-                FocusHidSink()
+                SetActiveStep("asset_scan")
                 Return
 
             End If
@@ -3397,7 +3956,7 @@ $"Action={wf.WorkflowAction}")
                     lockerNumber:=lockerNumber,
                     correlationId:=actionId,
                     sessionUserId:=actorId,
-                    ct:=CancellationToken.None)
+                    ct:=GetWorkflowCancellationToken())
 
                     If myEpoch <> _uiEpoch Then
                         TraceLogger.Log("ASSET DEPOSIT ABORT epoch changed after locker authorize")
@@ -3428,10 +3987,10 @@ $"Action={wf.WorkflowAction}")
                         ShowPrompt($"Asset deposit was not authorized for compartment {lockerNumber}.")
                         shouldEndSession = True
                         delayBeforeEndMs = 3000
-                        Return
 
                     End If
 
+                    If Not shouldEndSession Then
                     If String.IsNullOrWhiteSpace(authorizeResponse.transactionId) OrElse
                String.IsNullOrWhiteSpace(authorizeResponse.commandId) Then
 
@@ -3537,6 +4096,7 @@ $"Action={wf.WorkflowAction}")
 
                         End If
 
+                    End If
                     End If
 
                 End If
@@ -3993,41 +4553,48 @@ $"Action={wf.WorkflowAction}")
                                                 myEpoch As Integer) As Task(Of Boolean)
 
             Dim startedUtc = DateTime.UtcNow
+            _lockerDoorCycleActive = True
+            _lastDoorCycleReturnRequestUtc = DateTime.MinValue
 
-            Using db = DatabaseBootstrapper.BuildDbContext()
+            Try
+                Using db = DatabaseBootstrapper.BuildDbContext()
 
-                Dim locker = db.Lockers.
-            AsNoTracking().
-            SingleOrDefault(Function(l) l.LockerNumber = lockerNumber)
+                    Dim locker = db.Lockers.
+                AsNoTracking().
+                SingleOrDefault(Function(l) l.LockerNumber = lockerNumber)
 
-                If locker Is Nothing Then
-                    Throw New InvalidOperationException($"Locker {lockerNumber} was not found.")
-                End If
-
-                Do
-                    If myEpoch <> _uiEpoch Then Return False
-
-                    Dim isOpen As Boolean = False
-                    Dim gotState As Boolean = False
-
-                    Try
-                        gotState = _lockerController.TryGetLockOpen(locker.Branch, locker.RelayId, isOpen)
-                    Catch
-                        gotState = False
-                    End Try
-
-                    If gotState AndAlso Not isOpen Then
-                        Return True
+                    If locker Is Nothing Then
+                        Throw New InvalidOperationException($"Locker {lockerNumber} was not found.")
                     End If
 
-                    If (DateTime.UtcNow - startedUtc).TotalMilliseconds >= timeoutMs Then
-                        Return False
-                    End If
+                    Do
+                        If myEpoch <> _uiEpoch Then Return False
 
-                    Await Task.Delay(250)
-                Loop
+                        Dim isOpen As Boolean = False
+                        Dim gotState As Boolean = False
 
-            End Using
+                        Try
+                            gotState = _lockerController.TryGetLockOpen(locker.Branch, locker.RelayId, isOpen)
+                        Catch
+                            gotState = False
+                        End Try
+
+                        If gotState AndAlso Not isOpen Then
+                            Return True
+                        End If
+
+                        If (DateTime.UtcNow - startedUtc).TotalMilliseconds >= timeoutMs Then
+                            Return False
+                        End If
+
+                        Await Task.Delay(250)
+                    Loop
+
+                End Using
+            Finally
+                _lockerDoorCycleActive = False
+                _lastDoorCycleReturnRequestUtc = DateTime.MinValue
+            End Try
 
         End Function
         Private Async Function CompleteAssetDepositAsync(
@@ -4191,7 +4758,7 @@ $"Action={wf.WorkflowAction}")
                 Await _backend.AckLockerActionAsync(
             dto:=ack,
             bearerToken:=bearerToken,
-            ct:=CancellationToken.None)
+            ct:=GetWorkflowCancellationToken())
 
                 TraceLogger.Log(
             $"ASSET COMPLETE locker ACK succeeded; " &
@@ -4410,6 +4977,15 @@ $"Action={wf.WorkflowAction}")
             End Using
 
         End Sub
+        Private Sub ReleasePendingReservationSafely(lockerNumber As String, reason As String)
+            If String.IsNullOrWhiteSpace(lockerNumber) Then Return
+
+            Try
+                ReleaseLockerReservation(lockerNumber, reason)
+            Catch ex As Exception
+                TraceExceptionDeep("RELEASE_PENDING_RESERVATION_FAILED", ex)
+            End Try
+        End Sub
         Private Async Function FinalizeSuccessfulLockerActionsAsync(openResults As List(Of LockerActionResult),
                                                             message As String) As Task
 
@@ -4540,7 +5116,7 @@ $"Action={wf.WorkflowAction}")
         workOrderNumber,
         requestedLockerNumber,
         _sessionToken,
-        CancellationToken.None
+        GetWorkflowCancellationToken()
     )
         End Function
         Private Async Function CompleteDeliveryForLockerAsync(workOrderNumber As String,
@@ -4702,12 +5278,12 @@ $"Action={wf.WorkflowAction}")
             Dim errorMessage As String = Nothing
             Dim processException As Exception = Nothing
             Dim openResult As LockerActionResult = Nothing
+            Dim assignedLockerNumber As String = Nothing
 
             Try
                 ShowPrompt($"Finding an available {code} compartment…")
 
-                Dim assignedLockerNumber As String =
-            _assigner.SelectNextAvailableLockerNumber(code)
+                assignedLockerNumber = _assigner.SelectNextAvailableLockerNumber(code)
 
                 If String.IsNullOrWhiteSpace(assignedLockerNumber) Then
 
@@ -4720,6 +5296,7 @@ $"Action={wf.WorkflowAction}")
 
                     _state = ScreenState.AwaitLockerSize
                     ShowLockerSizeSelection($"No {code} compartments are available. Select a different size.")
+                    If CompleteDeferredReturnToStartIfRequested() Then Return
                     Return
 
                 End If
@@ -4740,7 +5317,7 @@ $"Action={wf.WorkflowAction}")
                 lockerNumber:=assignedLockerNumber,
                 correlationId:=actionId,
                 sessionUserId:=If(_courierAuth?.UserId, _authResult?.UserId),
-                ct:=CancellationToken.None)
+                ct:=GetWorkflowCancellationToken())
 
                 If myEpoch <> _uiEpoch Then Return
 
@@ -4770,7 +5347,7 @@ $"Action={wf.WorkflowAction}")
                     ackStatus:="executed",
                     hardwareEventCode:="LOCKER_OPEN_OK",
                     message:=$"Locker {assignedLockerNumber} opened for delivery.",
-                    ct:=CancellationToken.None)
+                    ct:=GetWorkflowCancellationToken())
 
                         ShowPrompt($"Locker {assignedLockerNumber} opened. Place contents inside and close the door.")
 
@@ -4825,7 +5402,7 @@ $"Action={wf.WorkflowAction}")
                     ackStatus:="failed",
                     hardwareEventCode:="LOCKER_OPEN_FAILED",
                     message:=$"Locker {assignedLockerNumber} failed to open for delivery.",
-                    ct:=CancellationToken.None)
+                    ct:=GetWorkflowCancellationToken())
 
                         ReleaseLockerReservation(assignedLockerNumber, "DeliveryOpenFailed")
                         endSessionAfterDelay = True
@@ -4843,6 +5420,12 @@ $"Action={wf.WorkflowAction}")
             If processException IsNot Nothing Then
 
                 If myEpoch <> _uiEpoch Then Return
+
+                If openResult Is Nothing OrElse Not openResult.Success Then
+                    ReleasePendingReservationSafely(
+                        assignedLockerNumber,
+                        "DeliveryAssignmentException")
+                End If
 
                 errorMessage = $"System unavailable: {processException.Message}"
                 endSessionAfterDelay = True
@@ -5045,9 +5628,16 @@ $"Action={wf.WorkflowAction}")
             If _sizeTiles Is Nothing OrElse _sizeTiles.Count = 0 Then
 
                 SizeSelectionPanel.Visibility = Visibility.Collapsed
-                _state = ScreenState.AwaitWorkOrder
+                ShowPrompt("No commissioned compartment sizes are available. Returning to start.")
 
-                ShowPrompt("No commissioned compartment sizes are available.")
+                Dim myEpoch As Integer = _uiEpoch
+                Dispatcher.BeginInvoke(
+                    Async Sub()
+                        Await Task.Delay(2500)
+                        If myEpoch = _uiEpoch Then
+                            ResetToAwaitWorkflowChoice()
+                        End If
+                    End Sub)
                 Return
 
             End If
@@ -5185,6 +5775,12 @@ $"Action={wf.WorkflowAction}")
 
                 errorMessage = $"System unavailable: {processException.Message}"
 
+                If openResult Is Nothing OrElse Not openResult.Success Then
+                    ReleasePendingReservationSafely(
+                        assignedLockerNumber,
+                        "PackageStageException")
+                End If
+
                 If openResult IsNot Nothing Then
                     Try
                         Await New LockerActionService().
@@ -5314,10 +5910,9 @@ $"Action={wf.WorkflowAction}")
             Try
                 Dim path = "C:\ProgramData\SmartLockerKiosk\Logs\ui-trace.txt"
                 Dim line =
-                    $"{DateTime.Now:HH:mm:ss.fff} [{tag}] inst={_instanceId} state={_state} epoch={_uiEpoch}{Environment.NewLine}" &
+                    $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} [{tag}] inst={_instanceId} state={_state} epoch={_uiEpoch}{Environment.NewLine}" &
                     Environment.StackTrace & Environment.NewLine & Environment.NewLine
-                System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path))
-                System.IO.File.AppendAllText(path, line, System.Text.Encoding.UTF8)
+                TraceLogger.AppendRetainedText(path, line)
             Catch
             End Try
         End Sub

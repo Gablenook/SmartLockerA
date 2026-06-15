@@ -80,6 +80,27 @@ Namespace SmartLockerKiosk
             w.ShowDialog()
 
         End Sub
+        Private Sub TransactionRecovery_Click(sender As Object, e As RoutedEventArgs)
+            Dim actionId = Guid.NewGuid().ToString("N")
+
+            Audit.AuditServices.SafeLog(New Audit.AuditEvent With {
+                .EventType = Audit.AuditEventType.PolicyConfigurationChange,
+                .ActorType = Audit.ActorType.Admin,
+                .ActorId = ActorId,
+                .AffectedComponent = "AdminScreen",
+                .Outcome = Audit.AuditOutcome.Success,
+                .CorrelationId = actionId,
+                .ReasonCode = "OpenTransactionRecoveryWindow"
+            })
+
+            Dim w As New TransactionRecoveryAdminWindow With {
+                .Owner = Me,
+                .ActorId = Me.ActorId
+            }
+
+            w.ShowDialog()
+
+        End Sub
         Private Sub ControllerSetup_Click(sender As Object, e As RoutedEventArgs)
             Dim actionId = Guid.NewGuid().ToString("N")
 

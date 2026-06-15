@@ -185,33 +185,51 @@ Namespace SmartLockerKiosk
 
         End Function
         Public Async Function ValidateAssetAsync(
-     assetTag As String,
-     ct As CancellationToken
- ) As Task(Of AssetValidateResponse) Implements IOperationsBackendService.ValidateAssetAsync
+    assetTag As String,
+    ct As CancellationToken
+) As Task(Of AssetValidateResponse) Implements IOperationsBackendService.ValidateAssetAsync
 
             Return Await ValidateAssetAsync(
-                assetTag:=assetTag,
-                workflow:="asset-deposit",
-                workflowAction:="stage",
-                ct:=ct)
+        assetTag:=assetTag,
+        credentialKey:=Nothing,
+        workflow:="asset-deposit",
+        workflowAction:="stage",
+        ct:=ct)
 
         End Function
         Public Async Function ValidateAssetAsync(
-            assetTag As String,
-            workflow As String,
-            workflowAction As String,
-            ct As CancellationToken
-        ) As Task(Of AssetValidateResponse)
+    assetTag As String,
+    workflow As String,
+    workflowAction As String,
+    ct As CancellationToken
+) As Task(Of AssetValidateResponse)
+
+            Return Await ValidateAssetAsync(
+        assetTag:=assetTag,
+        credentialKey:=Nothing,
+        workflow:=workflow,
+        workflowAction:=workflowAction,
+        ct:=ct)
+
+        End Function
+        Public Async Function ValidateAssetAsync(
+    assetTag As String,
+    credentialKey As String,
+    workflow As String,
+    workflowAction As String,
+    ct As CancellationToken
+) As Task(Of AssetValidateResponse)
 
             Dim cleanAssetTag As String = If(assetTag, "").Trim()
+            Dim cleanCredentialKey As String = If(credentialKey, "").Trim()
             Dim cleanWorkflow As String = If(workflow, "").Trim()
             Dim cleanWorkflowAction As String = If(workflowAction, "").Trim()
 
             If String.IsNullOrWhiteSpace(cleanAssetTag) Then
                 Return New AssetValidateResponse With {
-                    .isValid = False,
-                    .message = "Asset tag is required."
-                }
+            .isValid = False,
+            .message = "Asset tag is required."
+        }
             End If
 
             If String.IsNullOrWhiteSpace(cleanWorkflow) Then
@@ -224,12 +242,12 @@ Namespace SmartLockerKiosk
 
             If AppSettings.TestModeEnabled Then
                 Return New AssetValidateResponse With {
-                    .isValid = True,
-                    .assetTag = cleanAssetTag,
-                    .deviceType = "RF_DEVICE",
-                    .sizeCode = "",
-                    .message = "OK"
-                }
+            .isValid = True,
+            .assetTag = cleanAssetTag,
+            .deviceType = "RF_DEVICE",
+            .sizeCode = "",
+            .message = "OK"
+        }
             End If
 
             AppSettings.RequireBackendConfig()
@@ -237,17 +255,17 @@ Namespace SmartLockerKiosk
             Dim requestId As String = Guid.NewGuid().ToString("N")
 
             Dim req As New AssetValidateRequest With {
-                .assetTag = cleanAssetTag,
-                .credentialKey = Nothing,
-                .kioskId = AppSettings.KioskID,
-                .siteCode = AppSettings.SiteCode,
-                .locationId = AppSettings.LocationId,
-                .clientCode = AppSettings.ClientCode,
-                .workflow = cleanWorkflow,
-                .workflowAction = cleanWorkflowAction,
-                .timestampUtc = DateTime.UtcNow,
-                .requestId = requestId
-            }
+        .assetTag = cleanAssetTag,
+        .credentialKey = If(String.IsNullOrWhiteSpace(cleanCredentialKey), Nothing, cleanCredentialKey),
+        .kioskId = AppSettings.KioskID,
+        .siteCode = AppSettings.SiteCode,
+        .locationId = AppSettings.LocationId,
+        .clientCode = AppSettings.ClientCode,
+        .workflow = cleanWorkflow,
+        .workflowAction = cleanWorkflowAction,
+        .timestampUtc = DateTime.UtcNow,
+        .requestId = requestId
+    }
 
             Dim json As String = JsonSerializer.Serialize(req, _jsonOpts)
 
@@ -264,9 +282,9 @@ Namespace SmartLockerKiosk
 
                     If Not resp.IsSuccessStatusCode Then
                         Return New AssetValidateResponse With {
-                            .isValid = False,
-                            .message = ExtractBackendErrorMessage(body, resp)
-                        }
+                    .isValid = False,
+                    .message = ExtractBackendErrorMessage(body, resp)
+                }
                     End If
 
                     Dim result As AssetValidateResponse = Nothing
@@ -277,16 +295,16 @@ Namespace SmartLockerKiosk
                         TraceLogger.LogExceptionDeep("ASSET_VALIDATE_RESPONSE_JSON_FAIL", jsonEx)
 
                         Return New AssetValidateResponse With {
-                            .isValid = False,
-                            .message = "Backend response was not valid asset-validation JSON."
-                        }
+                    .isValid = False,
+                    .message = "Backend response was not valid asset-validation JSON."
+                }
                     End Try
 
                     If result Is Nothing Then
                         Return New AssetValidateResponse With {
-                            .isValid = False,
-                            .message = "Backend returned an empty asset-validation response."
-                        }
+                    .isValid = False,
+                    .message = "Backend returned an empty asset-validation response."
+                }
                     End If
 
                     Return result

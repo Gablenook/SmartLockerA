@@ -5,7 +5,7 @@
 		<TargetFramework>net8.0-windows</TargetFramework>
 		<UseWPF>true</UseWPF>
 		<RootNamespace>SmartLockerKiosk</RootNamespace>
-		<ImportedNamespaces>HldSerialLib.Serial.LockBoard=False,Microsoft.VisualBasic=True,System=True,System.Collections=True,System.Collections.Generic=True,System.Diagnostics=True,System.Linq=True,System.Xml.Linq=True,System.Threading.Tasks=True,SmartLockerKiosk=True</ImportedNamespaces>
+		<ImportedNamespaces>Microsoft.VisualBasic=True,System=True,System.Collections=True,System.Collections.Generic=True,System.Diagnostics=True,System.Linq=True,System.Xml.Linq=True,System.Threading.Tasks=True,SmartLockerKiosk=True</ImportedNamespaces>
 	</PropertyGroup>
 
 	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
@@ -26,6 +26,7 @@
 	  <None Remove="Configs\tsa-workflow.json" />
 	  <None Remove="Images\Ryder.png" />
 	  <None Remove="Images\ShawAFBLogo.png" />
+	  <Compile Remove="WorkflowTests\**\*.vb" />
 	</ItemGroup>
 
 	<ItemGroup>
@@ -88,9 +89,6 @@
 		  <CopyToOutputDirectory>Never</CopyToOutputDirectory>
 		</Resource>
 		<Resource Include="Images\TSALogo.png" />
-	</ItemGroup>
-	<ItemGroup>
-	  <Import Include="HldSerialLib.Serial.LockBoard" />
 	</ItemGroup>
 	<ItemGroup>
 	  <Reference Include="HldRelayController">

@@ -3185,6 +3185,7 @@ $"Action={wf.WorkflowAction}")
         }
 
                 Dim bearerToken As String = GetCurrentBackendBearerToken()
+                Dim tokenPresent As Boolean = Not String.IsNullOrWhiteSpace(bearerToken)
 
                 TraceLogger.Log(
             "CHECKOUT LOCKER AUTHORIZE START: " &
@@ -3192,7 +3193,7 @@ $"Action={wf.WorkflowAction}")
             "; assetTag=" & cleanAssetTag &
             "; actorId=" & actorId &
             "; requestedBy=" & actorId &
-            "; tokenPresent=" & Not String.IsNullOrWhiteSpace(bearerToken) &
+            "; tokenPresent=" & tokenPresent.ToString() &
             "; correlationId=" & cleanActionId)
 
                 Dim response =
@@ -3299,13 +3300,14 @@ $"Action={wf.WorkflowAction}")
             End If
 
             Dim bearerToken As String = GetCurrentBackendBearerToken()
+            Dim tokenPresent As Boolean = Not String.IsNullOrWhiteSpace(bearerToken)
 
             TraceLogger.Log(
         "CHECKOUT ACK START: " &
         "transactionId=" & dto.transactionId &
         "; commandId=" & dto.commandId &
         "; locker=" & cleanLockerNumber &
-        "; tokenPresent=" & Not String.IsNullOrWhiteSpace(bearerToken))
+        "; tokenPresent=" & tokenPresent.ToString())
 
             Dim ackFailureException As Exception = Nothing
 
